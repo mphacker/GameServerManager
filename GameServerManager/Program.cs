@@ -7,7 +7,7 @@ namespace GameServerManager
     {
         static void Main(string[] args)
         {
-            Console.WriteLine("Game Server Manger starting up...");
+            Utils.Log("Game Server Manger starting up...");
 
             // Load appsettings.json into AppSettings model
             var configuration = new ConfigurationBuilder()
@@ -20,14 +20,14 @@ namespace GameServerManager
             // Check if SteamCMD path is pointing to a valid file
             if (!File.Exists(appSettings.SteamCMDPath))
             {
-                Console.WriteLine($"SteamCMD path is invalid: {appSettings.SteamCMDPath}");
+                Utils.Log($"SteamCMD path is invalid: {appSettings.SteamCMDPath}");
                 return;
             }
 
             // Check if any game servers are configured
             if (appSettings.GameServers is null || appSettings.GameServers.Count == 0)
             {
-                Console.WriteLine("No game servers configured in appsettings.json.");
+                Utils.Log("No game servers configured in appsettings.json.");
                 return;
             }
 
@@ -36,7 +36,7 @@ namespace GameServerManager
             {
                 if (string.IsNullOrEmpty(gameServer.Name) || string.IsNullOrEmpty(gameServer.ProcessName))
                 {
-                    Console.WriteLine($"Invalid game server configuration. Name or process name is missing: {gameServer.Name}");
+                    Utils.Log($"Invalid game server configuration. Name or process name is missing: {gameServer.Name}");
                     return;
                 }
 
@@ -44,21 +44,21 @@ namespace GameServerManager
                 var fullPath = Path.Combine(gameServer.GamePath, gameServer.ServerExe);
                 if (!File.Exists(fullPath))
                 {
-                    Console.WriteLine($"Game server {gameServer.Name} executable not found at: {fullPath}");
+                    Utils.Log($"Game server {gameServer.Name} executable not found at: {fullPath}");
                     return;
                 }
 
                 //check if the game server backup paths are valid
                 if (gameServer.AutoBackup &&(string.IsNullOrEmpty(gameServer.AutoBackupSource) || string.IsNullOrEmpty(gameServer.AutoBackupDest)))
                 {
-                    Console.WriteLine($"Invalid game server backup source or destination for {gameServer.Name}");
+                    Utils.Log($"Invalid game server backup source or destination for {gameServer.Name}");
                     return;
                 }
 
                 //check if the game server update time is valid date time
                 if ((gameServer.AutoUpdate || gameServer.AutoBackup) && !DateTime.TryParse(gameServer.AutoUpdateBackupTime, out _))
                 {
-                    Console.WriteLine($"Invalid game server update/backup time for {gameServer.Name}");
+                    Utils.Log($"Invalid game server update/backup time for {gameServer.Name}");
                     return;
                 }
 
@@ -67,7 +67,7 @@ namespace GameServerManager
                 {
                     gameServer.GamePath = gameServer.AutoBackupSource.TrimEnd('\\');
                     Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine($"Warning: Game path for {gameServer.Name} has a trailing backslash. Removing it.");
+                    Utils.Log($"Warning: Game path for {gameServer.Name} has a trailing backslash. Removing it.");
                     Console.ResetColor();
                 }
 

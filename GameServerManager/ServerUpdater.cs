@@ -26,7 +26,7 @@ namespace GameServerManager
         public void Start()
         {
             // Start the auto-update timer
-            Console.WriteLine($"Auto-update check process started for {_gameServer.Name}");
+            Utils.Log($"Auto-update check process started for {_gameServer.Name}");
             _timer.AutoReset = true;
             _timer.Enabled = true;
             _timer.Start();
@@ -35,7 +35,7 @@ namespace GameServerManager
         public void Stop()
         {
             // Stop the auto-update timer
-            Console.WriteLine($"Auto-update check process stopped for {_gameServer.Name}");
+            Utils.Log($"Auto-update check process stopped for {_gameServer.Name}");
             _timer.Stop();
         }
 
@@ -53,6 +53,9 @@ namespace GameServerManager
             // Check if the game server is set to auto-update
             if (_gameServer.AutoUpdate)
             {
+                //if we are already in the process of updating, return false
+                if (updateInProgres)
+                    return false;
 
                 // Get the current time
                 var currentTime = DateTime.Now;
@@ -61,7 +64,7 @@ namespace GameServerManager
                 // Ensure we haven't already done an update today
                 if (_lastUpdateDate.Date == currentTime.Date)
                 {
-                    Console.WriteLine($"Already updated {_gameServer.Name} today.");
+                    Utils.Log($"Already updated {_gameServer.Name} today.");
                     return false; // Already updated today
                 }
 
@@ -75,7 +78,7 @@ namespace GameServerManager
                 // Check if the current time is within the auto-update time range 
                 if (currentTimeOfDay >= autoUpdateTimeOfDay && currentTimeOfDay <= autoUpdateEndTime)
                 {
-                    Console.WriteLine($"Auto-update time reached for {_gameServer.Name}.");
+                    Utils.Log($"Auto-update time reached for {_gameServer.Name}.");
                     return true; // Time to update the server
                 }
             }
@@ -87,16 +90,17 @@ namespace GameServerManager
             // Check if the game server is set to auto-update or auto-backup and that we are not already running the updateserver process.
             if ((_gameServer.AutoUpdate || _gameServer.AutoBackup) && !updateInProgres)
             {
+                _lastUpdateDate = DateTime.Now; // Update the last update date
                 updateInProgres = true;
                 bool needToRestartServer = false;
-                Console.WriteLine($"Updating {_gameServer.Name}...");
+                Utils.Log($"Updating {_gameServer.Name}...");
 
                 //check to see if the game server is running
                 var process = System.Diagnostics.Process.GetProcessesByName(_gameServer.ProcessName).FirstOrDefault();
                 if (process != null && !process.HasExited)
                 {
                     needToRestartServer = true; // The server is running and needs to be restarted after the update
-                    Console.WriteLine($"Process for {_gameServer.Name} is running. Stopping server.");
+                    Utils.Log($"Process for {_gameServer.Name} is running. Stopping server.");
 
                     // Stop the game server process gracefully
                     process.CloseMainWindow(); // This will send a close message to the main window of the process
@@ -104,11 +108,11 @@ namespace GameServerManager
 
                     if (!process.HasExited)
                     {
-                        Console.WriteLine($"Process for {_gameServer.Name} did not exit in time. Killing process.");
+                        Utils.Log($"Process for {_gameServer.Name} did not exit in time. Killing process.");
                         process.Kill(); // Forcefully kill the process if it didn't exit
                     }
 
-                    Console.WriteLine($"Process for {_gameServer.Name} stopped.");
+                    Utils.Log($"Process for {_gameServer.Name} stopped.");
                 }
 
                 //If we have AutoBackup enabled, complete the backup process.
@@ -117,12 +121,12 @@ namespace GameServerManager
                     var backup = new ServerBackup(_gameServer, _steamCmdPath);
                     if (backup.Backup())
                     {
-                        Console.WriteLine($"Backup completed for {_gameServer.Name}.");
+                        Utils.Log($"Backup completed for {_gameServer.Name}.");
                     }
                     else
                     {
                         Console.ForegroundColor = ConsoleColor.Red;
-                        Console.WriteLine($"Backup failed for {_gameServer.Name}. Proceeding with update.");
+                        Utils.Log($"Backup failed for {_gameServer.Name}. Proceeding with update.");
                         Console.ResetColor();
                     }
                 }
@@ -142,7 +146,7 @@ namespace GameServerManager
                     };
 
                     // Start the SteamCMD process
-                    Console.WriteLine($"Running SteamCMD at {_steamCmdPath} with arguments: {steamCmdArgs}");
+                    Utils.Log($"Running SteamCMD at {_steamCmdPath} with arguments: {steamCmdArgs}");
                     using (var updateProcess = new System.Diagnostics.Process())
                     {
                         updateProcess.StartInfo = startInfo;
@@ -154,7 +158,7 @@ namespace GameServerManager
                 // Restart the server if it was running prior to the update
                 if (needToRestartServer)
                 {
-                    Console.WriteLine($"Restarting process for {_gameServer.Name}");
+                    Utils.Log($"Restarting process for {_gameServer.Name}");
                     var restartInfo = new System.Diagnostics.ProcessStartInfo
                     {
                         FileName = System.IO.Path.Combine(_gameServer.GamePath, _gameServer.ServerExe),
@@ -166,11 +170,10 @@ namespace GameServerManager
                     rerestartProcess.StartInfo = restartInfo;
                     rerestartProcess.Start();
 
-                    //wait 10 seconds
-                    Thread.Sleep(10000);
+                    //wait 20 seconds
+                    Thread.Sleep(20000);
                 }
 
-                _lastUpdateDate = DateTime.Now; // Update the last update date
                 updateInProgres = false; // Reset the update in progress flag
                 return true; // Return true if the update was successful
             }

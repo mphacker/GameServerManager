@@ -27,7 +27,7 @@ namespace GameServerManager
             // Start the watchdog timer
             // This is where you would implement the logic to monitor the game server process
             // and restart it if necessary.
-            Console.WriteLine($"Watchdog started for {_gameServer.Name}");
+            Utils.Log($"Watchdog started for {_gameServer.Name}");
             _timer.AutoReset = true;
             _timer.Enabled = true;
             _timer.Start();
@@ -37,7 +37,7 @@ namespace GameServerManager
         {
             // Stop the watchdog timer
             // This is where you would implement the logic to stop monitoring the game server process.
-            Console.WriteLine($"Watchdog stopped for {_gameServer.Name}");
+            Utils.Log($"Watchdog stopped for {_gameServer.Name}");
             _timer.Stop();
 
         }
@@ -57,16 +57,16 @@ namespace GameServerManager
             // Check if the game server process is running
             // If not, restart it
             // This is where you would implement the logic to check the game server process.
-            Console.WriteLine($"Checking process for {_gameServer.Name}");
+            Utils.Log($"Checking process for {_gameServer.Name}");
             var process = System.Diagnostics.Process.GetProcessesByName(_gameServer.ProcessName).FirstOrDefault();
             if (process == null || process.HasExited)
             {
-                Console.WriteLine($"Process for {_gameServer.Name} not found. Restarting...");
+                Utils.Log($"Process for {_gameServer.Name} not found. Restarting...");
                 StartGameServer();
             }
             else
             {
-                Console.WriteLine($"Process for {_gameServer.Name} is running.");
+                Utils.Log($"Process for {_gameServer.Name} is running.");
             }
         }
 
@@ -74,7 +74,7 @@ namespace GameServerManager
         {
             // Restart the game server process
             // This is where you would implement the logic to restart the game server process.
-            Console.WriteLine($"Restarting process for {_gameServer.Name}");
+            Utils.Log($"Restarting process for {_gameServer.Name}");
             var startInfo = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = System.IO.Path.Combine(_gameServer.GamePath, _gameServer.ServerExe),
@@ -87,9 +87,8 @@ namespace GameServerManager
             {
                 process.StartInfo = startInfo;
                 process.Start();
-                Console.WriteLine($"Process for {_gameServer.Name} started.");
+                Utils.Log($"Process for {_gameServer.Name} started.");
             }
         }
-
     }
 }
