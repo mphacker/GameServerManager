@@ -44,7 +44,7 @@ Configuration parameters:
 - ServerExe: The filename for the game server.
 - ServerArgs: Optional command line arguments required when launching the game server.
 - SteamAppId: The Steam ID for the game server.
-- AutoRestart: [true/false] - When true, ensures that the game server automatically restarts after a backup or update. Note: By default the game server will restart if it was already running before the update or backup.
+- AutoRestart: [true/false] - When true, ensures that the watchdog keeps the game server up and running. If the server unexpectedly exits or crashes it will be started back up.
 - AutoUpdate: [true/false] - When true, enables automatic updates of the game server from Steam.
 - AutoUpdateBackupTime: Time in HH:MM AM/PM format that indicates when the game server should automatically shutdown and perform backups or updates.
 - AutoBackup: [true/false] - When true, enables automatic server shutdown and file backups at the configured time.
@@ -53,5 +53,5 @@ Configuration parameters:
 - AutoBackupDaysToKeep: Number of days a backup zip file should be saved. The higher the number, the more disk space is required.
 
 ## Logging and Troubleshooting
-A log with the filename format of "GameServerManager_yyyy-m-dd.log" will be created each day which will show all of the actions of the Game Server Manager.  These log files are automatically deleted after 10 days.  If you are experiencing any issues, consult the logs to see what the issue may be. Generally issues are realted to incorrect configuration of SteamAppId, ProcessName, or file paths.
+A log with the filename format of "GameServerManager_yyyy-m-dd.log" will be created each day which will show all of the actions of the Game Server Manager.  These log files are automatically deleted after 10 days.  If you are experiencing any issues, consult the logs to see what the issue may be. Generally issues are related to incorrect configuration of SteamAppId, ProcessName, or file paths.
 
