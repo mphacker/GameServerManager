@@ -1,0 +1,52 @@
+name: Build and Release GameServerManager
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore GameServerManager/GameServerManager.csproj
+
+      - name: Build
+        run: dotnet build GameServerManager/GameServerManager.csproj --configuration Release --no-restore
+
+      - name: Publish self-contained
+        run: |
+          dotnet publish GameServerManager/GameServerManager.csproj \
+            --configuration Release \
+            --runtime win-x64 \
+            --self-contained true \
+            --output publish_output
+
+      - name: Zip published output
+        run: Compress-Archive -Path publish_output/* -DestinationPath GameServerManager-win-x64.zip
+        shell: pwsh
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}-${{ github.run_number }}
+          name: GameServerManager Release ${{ github.run_number }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: GameServerManager-win-x64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
