@@ -37,7 +37,8 @@ Below is an example configuration for the game **Icarus**:
       "BackupWithoutShutdown": false
     }
   ]
-}```
+}
+```
 ### Configuration Parameters
 - **SteamCMDPath**: Full path to the SteamCMD executable (e.g., `steamcmd.exe`).
 - **GameServers**: An array of game server configurations.
