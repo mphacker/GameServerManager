@@ -35,7 +35,7 @@ jobs:
         id: create_release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}-${{ github.run_number }}
+          tag_name: GameServerManager-${{ github.run_id }}
           name: GameServerManager Release ${{ github.run_number }}
           draft: false
           prerelease: false
@@ -45,7 +45,7 @@ jobs:
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}-${{ github.run_number }}
+          tag_name: GameServerManager-${{ github.run_id }}
           files: GameServerManager-win-x64.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
