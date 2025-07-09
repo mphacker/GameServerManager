@@ -1,15 +1,20 @@
 # Game Server Manager
 
 ## Overview
-Game Server manager is a simple Windows command line utility to help keep Steam dedicated server games backed-up and running. Features include:
+Game Server Manager is a Windows command-line utility designed to help manage Steam dedicated server games. It provides features to ensure servers are running, backed up, and updated automatically. Key features include:
 
-- Watchdog - Ensures that the game server is up and running. If it crashes or stops the game server will be restarted.
-- Auto Backup - Backup your server's save files directory into a ZIP file and stores it in safe location. You can also specify the number of days to keep a backup.
-- Auto Update - Automatically have the game server shutdown and then check for server updates from Steam. Once complete, the server will be automatically restarted.
+- **Watchdog**: Ensures the game server is running. If the server crashes or stops, it will be restarted automatically.
+- **Auto Backup**: Creates ZIP backups of your server's save files and stores them in a specified location. You can configure the number of days to retain backups.
+- **Auto Update**: Automatically shuts down the server, checks for updates via Steam, and restarts the server after updates are applied.
 
-Game Server Manager supports managing multiple Steam servers at one time. All settings are managed in the appsettings.json file.
+Game Server Manager supports managing multiple Steam servers simultaneously. Configuration is handled via the `appsettings.json` file or through a CLI configuration utility.
 
-Below is an example configuration for the game Icarus:
+---
+
+## Configuration
+
+### Example Configuration (`appsettings.json`)
+Below is an example configuration for the game **Icarus**:
 
 ```json
 {
@@ -34,24 +39,68 @@ Below is an example configuration for the game Icarus:
 }
 ```
 
-Configuration parameters:
+### Configuration Parameters
+- **SteamCMDPath**: Full path to the SteamCMD executable (e.g., `steamcmd.exe`).
+- **GameServers**: An array of game server configurations.
+  - **Name**: A descriptive name for the server (used for identification only).
+  - **ProcessName**: The name of the server's process as it appears in Task Manager (required for watchdog functionality).
+  - **GamePath**: Path to the game server installation directory.
+  - **ServerExe**: Filename of the game server executable.
+  - **ServerArgs**: Optional command-line arguments for launching the server.
+  - **SteamAppId**: Steam application ID for the game server.
+  - **AutoRestart**: `true`/`false` - Automatically restart the server if it crashes or stops unexpectedly.
+  - **AutoUpdate**: `true`/`false` - Enable automatic updates via Steam.
+  - **AutoUpdateBackupTime**: Time in `HH:MM AM/PM` format for scheduled backups and updates.
+  - **AutoBackup**: `true`/`false` - Enable automatic backups of server save files.
+  - **AutoBackupSource**: Path to the folder containing save files.
+  - **AutoBackupDest**: Path to store the zipped backups.
+  - **AutoBackupDaysToKeep**: Number of days to retain backup files.
 
-- SteamCMDPath: Full path and filename of the steamcmd command line utility.
-- GameServers: An array of individual game servers to monitor. 
-- Name:  This is a name to help identify the game the configuration represents. The Name is not used for any actions.
-- ProcessName: This is the name of the process that shows up in Task Manager when the server is running. This is required to be accurate in order for the watchdog to properly know when the game server is running.
-- GamePath: The path to where the game server is installed.
-- ServerExe: The filename for the game server.
-- ServerArgs: Optional command line arguments required when launching the game server.
-- SteamAppId: The Steam ID for the game server.
-- AutoRestart: [true/false] - When true, ensures that the watchdog keeps the game server up and running. If the server unexpectedly exits or crashes it will be started back up.
-- AutoUpdate: [true/false] - When true, enables automatic updates of the game server from Steam.
-- AutoUpdateBackupTime: Time in HH:MM AM/PM format that indicates when the game server should automatically shutdown and perform backups or updates.
-- AutoBackup: [true/false] - When true, enables automatic server shutdown and file backups at the configured time.
-- AutoBackupSource: Path to the games save files folder.
-- AutoBackupDest: Path where the zipped backup of the save games folder should be placed.
-- AutoBackupDaysToKeep: Number of days a backup zip file should be saved. The higher the number, the more disk space is required.
+---
+
+## CLI Configuration
+You can configure the application using the CLI instead of manually editing the `appsettings.json` file. Run the application with the `config` argument:
+
+```bash
+GameServerManager config
+```
+
+Follow the prompts to set up your configuration interactively.
+
+---
+
+## Running the Application
+Once the `appsettings.json` file is configured (manually or via CLI), start the application by running:
+
+```bash
+GameServerManager.exe
+```
+
+The watchdog process will begin monitoring the servers. Auto updates and backups will occur as scheduled.
+
+---
 
 ## Logging and Troubleshooting
-A log with the filename format of "GameServerManager_yyyy-m-dd.log" will be created each day which will show all of the actions of the Game Server Manager.  These log files are automatically deleted after 10 days.  If you are experiencing any issues, consult the logs to see what the issue may be. Generally issues are related to incorrect configuration of SteamAppId, ProcessName, or file paths.
+The application generates daily log files in the format `GameServerManager_yyyy-MM-dd.log`. Logs include details of all actions performed by the application. Log files are automatically deleted after 10 days.
+
+If you encounter issues, check the logs for errors related to configuration (e.g., incorrect `SteamAppId`, `ProcessName`, or file paths).
+
+---
+
+## Requirements
+- **.NET 9.0**: Ensure the runtime is installed.
+- **SteamCMD**: Required for server updates.
+
+---
+
+## Features Summary
+- **Watchdog**: Keeps servers running.
+- **Auto Backup**: Scheduled backups with retention management.
+- **Auto Update**: Scheduled updates via Steam.
+- **Multi-Server Support**: Manage multiple servers simultaneously.
+- **Logging**: Detailed logs for troubleshooting.
+
+---
+
+
 
