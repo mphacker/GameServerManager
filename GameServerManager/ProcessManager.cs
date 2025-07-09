@@ -6,12 +6,57 @@ using Microsoft.Extensions.Logging;
 
 namespace GameServerManager
 {
-    public class ProcessManager
+    public interface IProcessProxy
+    {
+        bool HasExited { get; }
+        void CloseMainWindow();
+        void WaitForExit(int milliseconds);
+        void Kill();
+    }
+
+    public class ProcessProxy : IProcessProxy
+    {
+        private readonly Process _process;
+        public ProcessProxy(Process process) => _process = process;
+        public bool HasExited => _process.HasExited;
+        public void CloseMainWindow() => _process.CloseMainWindow();
+        public void WaitForExit(int milliseconds) => _process.WaitForExit(milliseconds);
+        public void Kill() => _process.Kill();
+    }
+
+    public interface IProcessWrapper
+    {
+        IProcessProxy[] GetProcessesByName(string processName);
+        IProcessProxy StartProcess(ProcessStartInfo startInfo);
+    }
+
+    public class ProcessWrapper : IProcessWrapper
+    {
+        public IProcessProxy[] GetProcessesByName(string processName) =>
+            Process.GetProcessesByName(processName).Select(p => new ProcessProxy(p)).ToArray();
+        public IProcessProxy StartProcess(ProcessStartInfo startInfo)
+        {
+            var process = new Process { StartInfo = startInfo };
+            process.Start();
+            return new ProcessProxy(process);
+        }
+    }
+
+    public interface IProcessManager
+    {
+        Task<bool> IsProcessRunningAsync(string processName);
+        Task StopProcessAsync(string processName);
+        Task StartProcessAsync(GameServer gameServer);
+    }
+
+    public class ProcessManager : IProcessManager
     {
         private readonly ILogger _logger;
-        public ProcessManager(ILogger logger)
+        private readonly IProcessWrapper _processWrapper;
+        public ProcessManager(ILogger logger, IProcessWrapper? processWrapper = null)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _processWrapper = processWrapper ?? new ProcessWrapper();
         }
 
         public async Task<bool> IsProcessRunningAsync(string processName)
@@ -19,7 +64,7 @@ namespace GameServerManager
             if (string.IsNullOrWhiteSpace(processName))
                 return false;
             return await Task.Run(() =>
-                Process.GetProcessesByName(processName).Any(p => !p.HasExited)
+                _processWrapper.GetProcessesByName(processName).Any(p => !p.HasExited)
             );
         }
 
@@ -27,7 +72,7 @@ namespace GameServerManager
         {
             if (string.IsNullOrWhiteSpace(processName))
                 return;
-            var process = Process.GetProcessesByName(processName).FirstOrDefault();
+            var process = _processWrapper.GetProcessesByName(processName).FirstOrDefault();
             if (process != null && !process.HasExited)
             {
                 try
@@ -66,8 +111,7 @@ namespace GameServerManager
             };
             await Task.Run(() =>
             {
-                using var process = new Process { StartInfo = startInfo };
-                process.Start();
+                _processWrapper.StartProcess(startInfo);
             });
         }
     }

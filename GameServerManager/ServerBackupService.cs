@@ -10,9 +10,11 @@ namespace GameServerManager
     public class ServerBackupService
     {
         private readonly ILogger _logger;
-        public ServerBackupService(ILogger logger)
+        private readonly IFileSystem _fileSystem;
+        public ServerBackupService(ILogger logger, IFileSystem? fileSystem = null)
         {
             _logger = logger;
+            _fileSystem = fileSystem ?? new FileSystem();
         }
 
         public async Task<bool> BackupAsync(GameServer gameServer)
@@ -45,13 +47,13 @@ namespace GameServerManager
             // Clean up old backups
             try
             {
-                var backupFiles = Directory.GetFiles(gameServer.AutoBackupDest, $"{gameServer.Name}_*.zip");
+                var backupFiles = _fileSystem.GetFiles(gameServer.AutoBackupDest, $"{gameServer.Name}_*.zip");
                 foreach (var file in backupFiles)
                 {
                     var fileInfo = new FileInfo(file);
                     if (fileInfo.CreationTime < DateTime.Now.AddDays(-gameServer.AutoBackupDaysToKeep))
                     {
-                        fileInfo.Delete();
+                        _fileSystem.DeleteFile(file);
                         _logger.LogInformation("Deleted old backup file: {File}", file);
                     }
                 }

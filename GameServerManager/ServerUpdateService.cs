@@ -8,13 +8,20 @@ namespace GameServerManager
     public class ServerUpdateService
     {
         private readonly ILogger _logger;
-        public ServerUpdateService(ILogger logger)
+        private readonly IFileSystem _fileSystem;
+        public ServerUpdateService(ILogger logger, IFileSystem? fileSystem = null)
         {
             _logger = logger;
+            _fileSystem = fileSystem ?? new FileSystem();
         }
 
         public async Task<bool> UpdateAsync(GameServer gameServer, string steamCmdPath)
         {
+            if (!_fileSystem.FileExists(steamCmdPath))
+            {
+                _logger.LogError("SteamCMD path does not exist: {Path}", steamCmdPath);
+                return false;
+            }
             var steamCmdArgs = $"+login anonymous +force_install_dir \"{gameServer.GamePath}\" +app_update {gameServer.SteamAppId} validate +quit";
             var startInfo = new ProcessStartInfo
             {

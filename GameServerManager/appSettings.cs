@@ -34,4 +34,20 @@ namespace GameServerManager
         public int AutoBackupDaysToKeep { get; set; } = 30;
 
     }
+
+    public interface IFileSystem
+    {
+        bool FileExists(string path);
+        bool DirectoryExists(string path);
+        string[] GetFiles(string path, string searchPattern);
+        void DeleteFile(string path);
+    }
+
+    public class FileSystem : IFileSystem
+    {
+        public bool FileExists(string path) => System.IO.File.Exists(path);
+        public bool DirectoryExists(string path) => System.IO.Directory.Exists(path);
+        public string[] GetFiles(string path, string searchPattern) => System.IO.Directory.GetFiles(path, searchPattern);
+        public void DeleteFile(string path) => System.IO.File.Delete(path);
+    }
 }
