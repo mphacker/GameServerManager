@@ -1,5 +1,8 @@
 ﻿using Microsoft.Extensions.Configuration;
-using System.Threading; // Add this using directive
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using System.Threading;
+using Serilog;
 
 namespace GameServerManager
 {
@@ -7,70 +10,50 @@ namespace GameServerManager
     {
         static void Main(string[] args)
         {
-            Utils.Log("Game Server Manger starting up...");
+            // Configure Serilog for file logging
+            Log.Logger = new LoggerConfiguration()
+                .MinimumLevel.Information()
+                .WriteTo.Console()
+                .WriteTo.File(
+                    path: System.IO.Path.Combine(AppContext.BaseDirectory, "GameServerManager_.log"),
+                    rollingInterval: RollingInterval.Day,
+                    retainedFileCountLimit: 10,
+                    outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}"
+                )
+                .CreateLogger();
+
+            // Setup DI and logging
+            var serviceCollection = new ServiceCollection();
+            ConfigureServices(serviceCollection);
+            var serviceProvider = serviceCollection.BuildServiceProvider();
+            var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
+
+            logger.LogInformation("Game Server Manager starting up...");
 
             // Load appsettings.json into AppSettings model
             var configuration = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
                 .AddJsonFile("appsettings.json")
                 .Build();
-
             var appSettings = configuration.Get<Settings>() ?? new Settings();
 
-            // Check if SteamCMD path is pointing to a valid file
-            if (!File.Exists(appSettings.SteamCMDPath))
+            // Validate configuration
+            var validationErrors = ConfigurationValidator.Validate(appSettings);
+            if (validationErrors.Count > 0 || appSettings.GameServers == null)
             {
-                Utils.Log($"SteamCMD path is invalid: {appSettings.SteamCMDPath}");
+                foreach (var error in validationErrors)
+                    logger.LogError(error);
                 return;
             }
 
-            // Check if any game servers are configured
-            if (appSettings.GameServers is null || appSettings.GameServers.Count == 0)
-            {
-                Utils.Log("No game servers configured in appsettings.json.");
-                return;
-            }
-
-            //ensure that the game servers are valid
+            // Remove trailing backslash from GamePath
             foreach (var gameServer in appSettings.GameServers)
             {
-                if (string.IsNullOrEmpty(gameServer.Name) || string.IsNullOrEmpty(gameServer.ProcessName))
-                {
-                    Utils.Log($"Invalid game server configuration. Name or process name is missing: {gameServer.Name}");
-                    return;
-                }
-
-                //The full path to the game server is the GamePath and ServerExe combined.  Verify that the file exists
-                var fullPath = Path.Combine(gameServer.GamePath, gameServer.ServerExe);
-                if (!File.Exists(fullPath))
-                {
-                    Utils.Log($"Game server {gameServer.Name} executable not found at: {fullPath}");
-                    return;
-                }
-
-                //check if the game server backup paths are valid
-                if (gameServer.AutoBackup &&(string.IsNullOrEmpty(gameServer.AutoBackupSource) || string.IsNullOrEmpty(gameServer.AutoBackupDest)))
-                {
-                    Utils.Log($"Invalid game server backup source or destination for {gameServer.Name}");
-                    return;
-                }
-
-                //check if the game server update time is valid date time
-                if ((gameServer.AutoUpdate || gameServer.AutoBackup) && !DateTime.TryParse(gameServer.AutoUpdateBackupTime, out _))
-                {
-                    Utils.Log($"Invalid game server update/backup time for {gameServer.Name}");
-                    return;
-                }
-
-                //ensure that the game server path does not have a trailing \
                 if (gameServer.GamePath.EndsWith("\\"))
                 {
-                    gameServer.GamePath = gameServer.AutoBackupSource.TrimEnd('\\');
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Utils.Log($"Warning: Game path for {gameServer.Name} has a trailing backslash. Removing it.");
-                    Console.ResetColor();
+                    gameServer.GamePath = gameServer.GamePath.TrimEnd('\\');
+                    logger.LogWarning("Game path for {ServerName} has a trailing backslash. Removing it.", gameServer.Name);
                 }
-
             }
 
             // Setup watchdog for each game server that has AutoRestart enabled
@@ -78,18 +61,18 @@ namespace GameServerManager
             var updaters = new List<ServerUpdater>();
             foreach (var gameServer in appSettings.GameServers)
             {
-                // Watchdog will handle process monitoring of servers.
-                // If the game server is also set for AutoUpdate, the watchdog will also handle the update process.
                 if (gameServer.AutoRestart)
                 {
-                    var watchdog = new Watchdog(gameServer, appSettings.SteamCMDPath);
+                    var watchdogLogger = serviceProvider.GetRequiredService<ILogger<Watchdog>>();
+                    var updaterLogger = serviceProvider.GetRequiredService<ILogger<ServerUpdater>>();
+                    var watchdog = new Watchdog(gameServer, appSettings.SteamCMDPath, watchdogLogger, updaterLogger);
                     watchdogs.Add(watchdog);
                     watchdog.Start();
                 }
                 else if (gameServer.AutoUpdate || gameServer.AutoBackup)
                 {
-                    // This is for games that are not covered by watchdog but still need to be updated and/or backed up.
-                    var updater = new ServerUpdater(gameServer, appSettings.SteamCMDPath);
+                    var updaterLogger = serviceProvider.GetRequiredService<ILogger<ServerUpdater>>();
+                    var updater = new ServerUpdater(gameServer, appSettings.SteamCMDPath, updaterLogger);
                     updaters.Add(updater);
                     updater.Start();
                 }
@@ -98,6 +81,17 @@ namespace GameServerManager
             // Keep the program running without using CPU cycles
             var resetEvent = new ManualResetEvent(false);
             resetEvent.WaitOne();
+        }
+
+        private static void ConfigureServices(IServiceCollection services)
+        {
+            services.AddLogging(configure =>
+            {
+                configure.AddSerilog();
+                configure.SetMinimumLevel(LogLevel.Information);
+            });
+            services.AddSingleton<ILogger<ServerUpdater>, Logger<ServerUpdater>>();
+            services.AddSingleton<ILogger<Watchdog>, Logger<Watchdog>>();
         }
     }
 }

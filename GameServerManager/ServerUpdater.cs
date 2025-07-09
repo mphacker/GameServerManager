@@ -1,218 +1,161 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
-using System.Globalization;
+using Microsoft.Extensions.Logging;
 
 namespace GameServerManager
 {
-    public class ServerUpdater
+    public class ServerUpdater : IAsyncDisposable
     {
-        private GameServer _gameServer;
-        string _steamCmdPath = string.Empty;
-        private System.Timers.Timer _timer;
-        private DateTime _lastUpdateDate = DateTime.MinValue; // Track the last update date
-        public bool UpdateInProgres { get; private set; } = false;
+        private readonly GameServer _gameServer;
+        private readonly string _steamCmdPath;
+        private readonly ILogger<ServerUpdater> _logger;
+        private readonly ServerUpdateService _updateService;
+        private readonly ServerBackupService _backupService;
+        private readonly ProcessManager _processManager;
+        private readonly Timer _timer;
+        private DateTime _lastUpdateDate = DateTime.MinValue;
+        private int _updateInProgress = 0; // 0 = false, 1 = true
+        private bool _disposed;
 
-        public ServerUpdater(GameServer gameServer, string steamCmdPath)
+        public bool UpdateInProgress => Interlocked.CompareExchange(ref _updateInProgress, 0, 0) == 1;
+
+        public ServerUpdater(GameServer gameServer, string steamCmdPath, ILogger<ServerUpdater> logger)
         {
             _gameServer = gameServer;
             _steamCmdPath = steamCmdPath;
-            _timer = new System.Timers.Timer(60000); // Check every 60 seconds
-            _timer.Elapsed += (sender, e) => AutoUpdateCheck();
+            _logger = logger;
+            _updateService = new ServerUpdateService(_logger);
+            _backupService = new ServerBackupService(_logger);
+            _processManager = new ProcessManager(_logger);
+            _timer = new Timer(async _ => await AutoUpdateCheckAsync(), null, Timeout.Infinite, Timeout.Infinite);
         }
 
         public void Start()
         {
-            // Start the auto-update timer
-            Utils.Log($"ServerUpdater - Auto-update check process started for {_gameServer.Name}");
-            _timer.AutoReset = true;
-            _timer.Enabled = true;
-            _timer.Start();
+            _logger.LogInformation("Auto-update check process started for {ServerName}", _gameServer.Name);
+            _timer.Change(TimeSpan.Zero, TimeSpan.FromMinutes(1));
         }
 
         public void Stop()
         {
-            // Stop the auto-update timer
-            Utils.Log($"ServerUpdater - Auto-update check process stopped for {_gameServer.Name}");
-            _timer.Stop();
+            _logger.LogInformation("Auto-update check process stopped for {ServerName}", _gameServer.Name);
+            _timer.Change(Timeout.Infinite, Timeout.Infinite);
         }
 
-        private void AutoUpdateCheck()
+        private async Task AutoUpdateCheckAsync()
         {
-            // Check if it's time to update the server
-            if (IsTimeToUpdateServer())
+            if (await IsTimeToUpdateServerAsync())
             {
-                UpdateServer();
+                await UpdateServerAsync();
             }
         }
 
-        public bool IsTimeToUpdateServer()
+        public async Task<bool> IsTimeToUpdateServerAsync()
         {
-            // Check if the game server is set to auto-update
+            return await Task.FromResult(CheckUpdateConditions());
+        }
+
+        private bool CheckUpdateConditions()
+        {
             if (_gameServer.AutoUpdate)
             {
-                //if we are already in the process of updating, return false
-                if (UpdateInProgres)
+                if (UpdateInProgress)
                     return false;
 
-                // Get the current time
                 var currentTime = DateTime.Now;
-                var currentTimeOfDay = currentTime.TimeOfDay;
-
-                // Ensure we haven't already done an update today
                 if (_lastUpdateDate.Date == currentTime.Date)
                 {
-                    Utils.Log($"ServerUpdater - Already updated {_gameServer.Name} today.");
-                    return false; // Already updated today
+                    _logger.LogInformation("Already updated {ServerName} today.", _gameServer.Name);
+                    return false;
                 }
 
-                // Parse the AutoUpdateTime from the appsettings.json
-                var autoUpdateTime = DateTime.ParseExact(_gameServer.AutoUpdateBackupTime, "hh:mm tt", CultureInfo.InvariantCulture);
+                if (!DateTime.TryParseExact(_gameServer.AutoUpdateBackupTime, "hh:mm tt", null, System.Globalization.DateTimeStyles.None, out var autoUpdateTime))
+                {
+                    _logger.LogWarning("Invalid AutoUpdateBackupTime for {ServerName}", _gameServer.Name);
+                    return false;
+                }
                 var autoUpdateTimeOfDay = autoUpdateTime.TimeOfDay;
-
-                // Define the end of the auto-update time range (5 minutes past the auto-update time)
+                var currentTimeOfDay = currentTime.TimeOfDay;
                 var autoUpdateEndTime = autoUpdateTimeOfDay.Add(TimeSpan.FromMinutes(5));
-
-                // Check if the current time is within the auto-update time range 
                 if (currentTimeOfDay >= autoUpdateTimeOfDay && currentTimeOfDay <= autoUpdateEndTime)
                 {
-                    Utils.Log($"ServerUpdater - Auto-update time reached for {_gameServer.Name}.");
-                    return true; // Time to update the server
+                    _logger.LogInformation("Auto-update time reached for {ServerName}.", _gameServer.Name);
+                    return true;
                 }
             }
-            return false; // No need to update the server
+            return false;
         }
 
-        public bool UpdateServer()
+        public async Task<bool> UpdateServerAsync()
         {
+            if (Interlocked.CompareExchange(ref _updateInProgress, 1, 0) == 1)
+            {
+                _logger.LogInformation("Update already in progress for {ServerName}...", _gameServer.Name);
+                return false;
+            }
             try
             {
-                // Check if the game server is set to auto-update or auto-backup and that we are not already running the updateserver process.
-                if ((_gameServer.AutoUpdate || _gameServer.AutoBackup) && !UpdateInProgres)
+                _lastUpdateDate = DateTime.Now;
+                bool needToRestartServer = false;
+                _logger.LogInformation("Updating {ServerName}...", _gameServer.Name);
+
+                // Stop process if running
+                if (await _processManager.IsProcessRunningAsync(_gameServer.ProcessName))
                 {
-                    _lastUpdateDate = DateTime.Now; // Update the last update date
-                    UpdateInProgres = true;
-                    bool needToRestartServer = false;
-                    Utils.Log($"ServerUpdater - Updating {_gameServer.Name}...");
-
-                    //check to see if the game server is running
-                    var process = System.Diagnostics.Process.GetProcessesByName(_gameServer.ProcessName).FirstOrDefault();
-                    if (process != null && !process.HasExited)
-                    {
-                        needToRestartServer = true; // The server is running and needs to be restarted after the update
-                        Utils.Log($"ServerUpdater - Process for {_gameServer.Name} is running. Stopping server.");
-
-                        // Stop the game server process gracefully
-                        process.CloseMainWindow(); // This will send a close message to the main window of the process
-                        process.WaitForExit(10000); // Wait for 10 seconds for the process to exit
-
-                        if (!process.HasExited)
-                        {
-                            Utils.Log($"ServerUpdater - Process for {_gameServer.Name} did not exit in time. Killing process.");
-                            process.Kill(); // Forcefully kill the process if it didn't exit
-                        }
-
-                        Utils.Log($"ServerUpdater - Process for {_gameServer.Name} stopped.");
-                    }
-
-                    //If we have AutoBackup enabled, complete the backup process.
-                    if (_gameServer.AutoBackup)
-                    {
-                        var backup = new ServerBackup(_gameServer, _steamCmdPath);
-                        if (backup.Backup())
-                        {
-                            Utils.Log($"ServerUpdater - Backup completed for {_gameServer.Name}.");
-                        }
-                        else
-                        {
-                            Console.ForegroundColor = ConsoleColor.Red;
-                            Utils.Log($"ServerUpdater - Backup failed for {_gameServer.Name}. Proceeding with update.");
-                            Console.ResetColor();
-                        }
-                    }
-
-                    //Do the game server update if required.
-                    if (_gameServer.AutoUpdate)
-                    {
-
-                        // Run the SteamCMD command to update the game server
-                        var steamCmdArgs = $"+login anonymous +force_install_dir \"{_gameServer.GamePath}\" +app_update {_gameServer.SteamAppId} validate +quit";
-                        var startInfo = new System.Diagnostics.ProcessStartInfo
-                        {
-                            FileName = _steamCmdPath,
-                            Arguments = steamCmdArgs,
-                            UseShellExecute = false, // Required for redirection
-                            RedirectStandardOutput = true, // Redirect standard output
-                            RedirectStandardError = true, // Redirect standard error
-                            CreateNoWindow = true
-                        };
-
-                        // Start the SteamCMD process
-                        Utils.Log($"ServerUpdater - Running SteamCMD at {_steamCmdPath} with arguments: {steamCmdArgs}");
-                        using (var updateProcess = new System.Diagnostics.Process())
-                        {
-                            updateProcess.StartInfo = startInfo;
-                            updateProcess.OutputDataReceived += (sender, e) => { if (e.Data != null) Utils.Log($"ServerUpdater - SteamCMD Output: {e.Data}"); };
-                            updateProcess.ErrorDataReceived += (sender, e) => { if (e.Data != null) Utils.Log($"ServerUpdater - Error: {e.Data}"); };
-                            updateProcess.Start();
-                            updateProcess.BeginOutputReadLine();
-                            updateProcess.BeginErrorReadLine();
-                            updateProcess.WaitForExit();
-                            if (updateProcess.ExitCode == 0)
-                            {
-                                Utils.Log($"ServerUpdater - Update completed successfully for {_gameServer.Name}.");
-                            }
-                            else
-                            {
-                                Console.ForegroundColor = ConsoleColor.Red;
-                                Utils.Log($"ServerUpdater - Update failed for {_gameServer.Name}. Exit code: {updateProcess.ExitCode}");
-                                Console.ResetColor();
-                                UpdateInProgres = false; // Reset the update in progress flag
-                                return false; // Return false if the update failed
-                            }
-                        }
-                    }
-
-                    // Restart the server if it was running prior to the update
-                    if (needToRestartServer)
-                    {
-                        Utils.Log($"ServerUpdater - restarting process for {_gameServer.Name}");
-                        var restartInfo = new System.Diagnostics.ProcessStartInfo
-                        {
-                            FileName = System.IO.Path.Combine(_gameServer.GamePath, _gameServer.ServerExe),
-                            Arguments = _gameServer.ServerArgs,
-                            UseShellExecute = true,
-                            CreateNoWindow = false
-                        };
-                        var rerestartProcess = new System.Diagnostics.Process();
-                        rerestartProcess.StartInfo = restartInfo;
-                        rerestartProcess.Start();
-
-                        //wait 2 minutes
-                        Utils.Log($"ServerUpdater - Waiting 30 seconds for {_gameServer.Name} to start.");
-                        System.Threading.Thread.Sleep(30000);
-                        Utils.Log($"ServerUpdater - Waiting completed.");
-
-                    }
-
-                    UpdateInProgres = false; // Reset the update in progress flag
-                    return true; // Return true if the update was successful
+                    needToRestartServer = true;
+                    _logger.LogInformation("Process for {ServerName} is running. Stopping server.", _gameServer.Name);
+                    await _processManager.StopProcessAsync(_gameServer.ProcessName);
                 }
-                else if (UpdateInProgres)
+
+                // Backup
+                if (_gameServer.AutoBackup)
                 {
-                    Utils.Log($"ServerUpdater - update in progress for {_gameServer.Name}...");
-                    return false; // Return false if the update is already in progress
+                    var backupResult = await _backupService.BackupAsync(_gameServer);
+                    if (backupResult)
+                        _logger.LogInformation("Backup completed for {ServerName}.", _gameServer.Name);
+                    else
+                        _logger.LogError("Backup failed for {ServerName}. Proceeding with update.", _gameServer.Name);
                 }
-                return false; // Return false if auto-update is not enabled
+
+                // Update
+                if (_gameServer.AutoUpdate)
+                {
+                    var updateResult = await _updateService.UpdateAsync(_gameServer, _steamCmdPath);
+                    if (!updateResult)
+                    {
+                        _logger.LogError("Update failed for {ServerName}.", _gameServer.Name);
+                        return false;
+                    }
+                }
+
+                // Restart
+                if (needToRestartServer)
+                {
+                    _logger.LogInformation("Restarting process for {ServerName}", _gameServer.Name);
+                    await _processManager.StartProcessAsync(_gameServer);
+                    _logger.LogInformation("Waiting 30 seconds for {ServerName} to start.", _gameServer.Name);
+                    await Task.Delay(TimeSpan.FromSeconds(30));
+                }
+                return true;
             }
             catch (Exception ex)
             {
-                Utils.Log($"ServerUpdater - Exception occurred while updating {_gameServer.Name}: {ex.Message}");
-                UpdateInProgres = false; // Reset the update in progress flag
-                return false; // Return false if an exception occurred
+                _logger.LogError(ex, "Exception occurred while updating {ServerName}", _gameServer.Name);
+                return false;
             }
+            finally
+            {
+                Interlocked.Exchange(ref _updateInProgress, 0);
+            }
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (_disposed) return;
+            _timer.Dispose();
+            _disposed = true;
+            await Task.CompletedTask;
         }
     }
 }
