@@ -27,7 +27,7 @@ namespace GameServerManager
                 return false;
             }
             var processRunning = System.Diagnostics.Process.GetProcessesByName(gameServer.ProcessName).Any(p => !p.HasExited);
-            if (processRunning)
+            if (processRunning && !gameServer.BackupWithoutShutdown)
             {
                 _logger.LogInformation("Process for {ServerName} is running. Backup skipped.", gameServer.Name);
                 return false;
@@ -44,17 +44,20 @@ namespace GameServerManager
                 _logger.LogError(ex, "Error creating backup for {ServerName}", gameServer.Name);
                 return false;
             }
-            // Clean up old backups
+            // Clean up old backups: keep only the most recent N backups
             try
             {
                 var backupFiles = _fileSystem.GetFiles(gameServer.AutoBackupDest, $"{gameServer.Name}_*.zip");
-                foreach (var file in backupFiles)
+                var orderedFiles = backupFiles
+                    .Select(f => new FileInfo(f))
+                    .OrderByDescending(f => f.CreationTime)
+                    .ToList();
+                if (gameServer.AutoBackupsToKeep > 0 && orderedFiles.Count > gameServer.AutoBackupsToKeep)
                 {
-                    var fileInfo = new FileInfo(file);
-                    if (fileInfo.CreationTime < DateTime.Now.AddDays(-gameServer.AutoBackupDaysToKeep))
+                    foreach (var file in orderedFiles.Skip(gameServer.AutoBackupsToKeep))
                     {
-                        _fileSystem.DeleteFile(file);
-                        _logger.LogInformation("Deleted old backup file: {File}", file);
+                        _fileSystem.DeleteFile(file.FullName);
+                        _logger.LogInformation("Deleted old backup file: {File}", file.FullName);
                     }
                 }
             }

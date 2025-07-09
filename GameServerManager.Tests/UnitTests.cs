@@ -95,15 +95,15 @@ namespace GameServerManager.Tests
         }
 
         [Fact]
-        // Validates that an error is returned if the AutoUpdateBackupTime is not a valid time string
+        // Validates that an error is returned if the AutoUpdateTime is not a valid time string
         // Mocks DirectoryExists and FileExists to always return true, simulating valid paths
-        public void ValidateGameServer_ReturnsError_WhenAutoUpdateBackupTimeInvalid()
+        public void ValidateGameServer_ReturnsError_WhenAutoUpdateTimeInvalid()
         {
             _fileSystemMock.Setup(f => f.DirectoryExists(It.IsAny<string>())).Returns(true);
             _fileSystemMock.Setup(f => f.FileExists(It.IsAny<string>())).Returns(true);
-            var server = new GameServer { Name = "Test", ProcessName = "proc", GamePath = "C:/", ServerExe = "notfound.exe", SteamAppId = "123", AutoUpdate = true, AutoUpdateBackupTime = "notatime" };
+            var server = new GameServer { Name = "Test", ProcessName = "proc", GamePath = "C:/", ServerExe = "notfound.exe", SteamAppId = "123", AutoUpdate = true, AutoUpdateTime = "notatime" };
             var errors = ConfigurationValidator.ValidateGameServer(server, _fileSystemMock.Object);
-            Assert.Contains(errors, e => e.Contains("Invalid update/backup time"));
+            Assert.Contains(errors, e => e.Contains("Invalid AutoUpdateTime"));
         }
 
         [Fact]
@@ -129,7 +129,8 @@ namespace GameServerManager.Tests
                         AutoBackupSource = "C:/games/save",
                         AutoBackupDest = "D:/backups",
                         AutoUpdate = true,
-                        AutoUpdateBackupTime = "05:30 AM"
+                        AutoUpdateTime = "05:30 AM",
+                        AutoBackupTime = "05:30 AM"
                     }
                 }
             };

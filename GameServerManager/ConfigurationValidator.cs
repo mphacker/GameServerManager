@@ -41,8 +41,25 @@ namespace GameServerManager
                 errors.Add($"Server executable not found for {gameServer.Name} at {exePath}");
             if (gameServer.AutoBackup && (string.IsNullOrWhiteSpace(gameServer.AutoBackupSource) || string.IsNullOrWhiteSpace(gameServer.AutoBackupDest)))
                 errors.Add($"Invalid backup source or destination for {gameServer.Name}");
-            if ((gameServer.AutoUpdate || gameServer.AutoBackup) && !DateTime.TryParse(gameServer.AutoUpdateBackupTime, out _))
-                errors.Add($"Invalid update/backup time for {gameServer.Name}: {gameServer.AutoUpdateBackupTime}");
+            // Validate update/backup time formats
+            if (!string.IsNullOrWhiteSpace(gameServer.AutoUpdateTime))
+            {
+                bool valid = true;
+                try { NCrontab.CrontabSchedule.Parse(gameServer.AutoUpdateTime); }
+                catch { valid = DateTime.TryParseExact(gameServer.AutoUpdateTime, new[] { "HH:mm", "hh:mm tt", "H:mm", "h:mm tt" }, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _); }
+                if (!valid)
+                    errors.Add($"Invalid AutoUpdateTime for {gameServer.Name}: {gameServer.AutoUpdateTime}");
+            }
+            if (!string.IsNullOrWhiteSpace(gameServer.AutoBackupTime))
+            {
+                bool valid = true;
+                try { NCrontab.CrontabSchedule.Parse(gameServer.AutoBackupTime); }
+                catch { valid = DateTime.TryParseExact(gameServer.AutoBackupTime, new[] { "HH:mm", "hh:mm tt", "H:mm", "h:mm tt" }, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _); }
+                if (!valid)
+                    errors.Add($"Invalid AutoBackupTime for {gameServer.Name}: {gameServer.AutoBackupTime}");
+            }
+            if (gameServer.AutoBackup && gameServer.AutoBackupsToKeep < 0)
+                errors.Add($"AutoBackupsToKeep must be 0 or greater for {gameServer.Name}");
             return errors;
         }
     }

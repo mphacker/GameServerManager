@@ -193,9 +193,9 @@ namespace GameServerManager
             {
                 AutoRestart = true,
                 AutoUpdate = true,
-                AutoUpdateBackupTime = "05:30 AM",
                 AutoBackup = false,
-                AutoBackupDaysToKeep = 30
+                AutoBackupsToKeep = 30,
+                BackupWithoutShutdown = false
             };
             Console.WriteLine();
             WriteSectionHeader(existing == null ? "Add New Game Server" : $"Edit Game Server: {gs.Name}");
@@ -207,12 +207,42 @@ namespace GameServerManager
             gs.SteamAppId = PromptRequired("SteamAppId", gs.SteamAppId);
             gs.AutoRestart = PromptBool("AutoRestart", gs.AutoRestart);
             gs.AutoUpdate = PromptBool("AutoUpdate", gs.AutoUpdate);
-            gs.AutoUpdateBackupTime = PromptDefault("AutoUpdateBackupTime", gs.AutoUpdateBackupTime);
+            gs.AutoUpdateTime = PromptTimeOrCron("AutoUpdateTime", gs.AutoUpdateTime);
             gs.AutoBackup = PromptBool("AutoBackup", gs.AutoBackup);
             gs.AutoBackupSource = PromptDefault("AutoBackupSource", gs.AutoBackupSource);
             gs.AutoBackupDest = PromptDefault("AutoBackupDest", gs.AutoBackupDest);
-            gs.AutoBackupDaysToKeep = PromptInt("AutoBackupDaysToKeep", gs.AutoBackupDaysToKeep);
+            gs.AutoBackupTime = PromptTimeOrCron("AutoBackupTime", gs.AutoBackupTime);
+            gs.AutoBackupsToKeep = PromptInt("AutoBackupsToKeep", gs.AutoBackupsToKeep);
+            gs.BackupWithoutShutdown = PromptBool("BackupWithoutShutdown", gs.BackupWithoutShutdown);
             return gs;
+        }
+
+        private static string PromptTimeOrCron(string label, string current)
+        {
+            while (true)
+            {
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.Write($"{label}");
+                Console.ForegroundColor = ConsoleColor.White;
+                Console.Write($" [{current}]: ");
+                Console.ResetColor();
+                var input = Console.ReadLine();
+                var value = !string.IsNullOrWhiteSpace(input) ? input : current;
+                if (IsValidTimeOrCron(value))
+                    return value;
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"{label} must be a valid time (e.g. 05:30 AM, 17:30) or CRON (e.g. 0 * * * *).");
+                Console.ResetColor();
+            }
+        }
+
+        private static bool IsValidTimeOrCron(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return false;
+            // Try CRON
+            try { NCrontab.CrontabSchedule.Parse(value); return true; } catch { }
+            // Try time
+            return DateTime.TryParseExact(value, new[] { "HH:mm", "hh:mm tt", "H:mm", "h:mm tt" }, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _);
         }
 
         private static string PromptRequired(string label, string current)
@@ -356,11 +386,14 @@ namespace GameServerManager
                     Console.WriteLine($"   SteamAppId: {s.SteamAppId}");
                     Console.WriteLine($"   AutoRestart: {s.AutoRestart}");
                     Console.WriteLine($"   AutoUpdate: {s.AutoUpdate}");
-                    Console.WriteLine($"   AutoUpdateBackupTime: {s.AutoUpdateBackupTime}");
                     Console.WriteLine($"   AutoBackup: {s.AutoBackup}");
+                    Console.WriteLine($"   BackupWithoutShutdown: {s.BackupWithoutShutdown}");
+                    Console.WriteLine($"   AutoUpdateTime: {s.AutoUpdateTime}");
+                    Console.WriteLine($"   AutoBackupTime: {s.AutoBackupTime}");
                     Console.WriteLine($"   AutoBackupSource: {s.AutoBackupSource}");
                     Console.WriteLine($"   AutoBackupDest: {s.AutoBackupDest}");
-                    Console.WriteLine($"   AutoBackupDaysToKeep: {s.AutoBackupDaysToKeep}");
+                    Console.WriteLine($"   AutoBackupsToKeep: {s.AutoBackupsToKeep}");
+
                     Console.ResetColor();
                 }
             }

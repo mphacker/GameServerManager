@@ -15,8 +15,6 @@ Game Server Manager supports managing multiple Steam servers simultaneously. Con
 
 ### Example Configuration (`appsettings.json`)
 Below is an example configuration for the game **Icarus**:
-
-```json
 {
   "SteamCMDPath": "D:\\steamcmd\\steamcmd.exe",
   "GameServers": [
@@ -29,16 +27,16 @@ Below is an example configuration for the game **Icarus**:
       "SteamAppId": "2089300",
       "AutoRestart": true,
       "AutoUpdate": true,
-      "AutoUpdateBackupTime": "05:30 AM",
+      "AutoUpdateTime": "05:30 AM", // Legacy format example
       "AutoBackup": true,
       "AutoBackupSource": "D:\\icarus\\Icarus\\Saved",
       "AutoBackupDest": "E:\\GameBackups\\Icarus\\",
-      "AutoBackupDaysToKeep": 30
+      "AutoBackupTime": "30 5 * * *", // CRON format example (5:30 AM every day)
+      "AutoBackupsToKeep": 30,
+      "BackupWithoutShutdown": false
     }
   ]
 }
-```
-
 ### Configuration Parameters
 - **SteamCMDPath**: Full path to the SteamCMD executable (e.g., `steamcmd.exe`).
 - **GameServers**: An array of game server configurations.
@@ -50,32 +48,28 @@ Below is an example configuration for the game **Icarus**:
   - **SteamAppId**: Steam application ID for the game server.
   - **AutoRestart**: `true`/`false` - Automatically restart the server if it crashes or stops unexpectedly.
   - **AutoUpdate**: `true`/`false` - Enable automatic updates via Steam.
-  - **AutoUpdateBackupTime**: Time in `HH:MM AM/PM` format for scheduled backups and updates.
+  - **AutoUpdateTime**: Time for scheduled updates. Supports both legacy and CRON formats:
+    - Legacy: `"HH:mm"`, `"hh:mm tt"` (e.g., `"05:30 AM"`, `"17:30"`)
+    - CRON: Standard CRON expression (e.g., `"30 5 * * *"` for 5:30 AM daily)
   - **AutoBackup**: `true`/`false` - Enable automatic backups of server save files.
   - **AutoBackupSource**: Path to the folder containing save files.
   - **AutoBackupDest**: Path to store the zipped backups.
-  - **AutoBackupDaysToKeep**: Number of days to retain backup files.
+  - **AutoBackupTime**: Time for scheduled backups. Supports both legacy and CRON formats (see above).
+  - **AutoBackupsToKeep**: Number of most recent backup files to retain. Older backups will be deleted.
+  - **BackupWithoutShutdown**: `true`/`false` - If `true`, backups will be performed without shutting down the dedicated server. If `false`, the server will be stopped before backup and restarted after.
 
 ---
 
 ## CLI Configuration
 You can configure the application using the CLI instead of manually editing the `appsettings.json` file. Run the application with the `config` argument:
-
-```bash
 GameServerManager config
-```
-
 Follow the prompts to set up your configuration interactively.
 
 ---
 
 ## Running the Application
 Once the `appsettings.json` file is configured (manually or via CLI), start the application by running:
-
-```bash
 GameServerManager.exe
-```
-
 The watchdog process will begin monitoring the servers. Auto updates and backups will occur as scheduled.
 
 ---
@@ -101,6 +95,9 @@ If you encounter issues, check the logs for errors related to configuration (e.g
 - **Logging**: Detailed logs for troubleshooting.
 
 ---
+
+
+
 
 
 

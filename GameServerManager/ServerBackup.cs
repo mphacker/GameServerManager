@@ -60,18 +60,21 @@ namespace GameServerManager
                     return false;
                 }
 
-                //Clean up old backups. Only keep the last _gamerServer.AutoBackupDaysToKeep days of backups. Note, the backup folder may contain files from other server backups.
+                //Clean up old backups. Only keep the last _gameServer.AutoBackupsToKeep backups. Note, the backup folder may contain files from other server backups.
                 try
                 {
                     _logger.LogInformation("ServerBackup - Cleaning up old backups for {ServerName}", _gameServer.Name);
                     var backupFiles = System.IO.Directory.GetFiles(_gameServer.AutoBackupDest, $"{_gameServer.Name}_*.zip");
-                    foreach (var file in backupFiles)
+                    var orderedFiles = backupFiles
+                        .Select(f => new System.IO.FileInfo(f))
+                        .OrderByDescending(f => f.CreationTime)
+                        .ToList();
+                    if (_gameServer.AutoBackupsToKeep > 0 && orderedFiles.Count > _gameServer.AutoBackupsToKeep)
                     {
-                        var fileInfo = new System.IO.FileInfo(file);
-                        if (fileInfo.CreationTime < DateTime.Now.AddDays(-_gameServer.AutoBackupDaysToKeep))
+                        foreach (var file in orderedFiles.Skip(_gameServer.AutoBackupsToKeep))
                         {
-                            fileInfo.Delete();
-                            _logger.LogInformation("Deleted old backup file: {File}", file);
+                            file.Delete();
+                            _logger.LogInformation("Deleted old backup file: {File}", file.FullName);
                         }
                     }
                 }

@@ -1,4 +1,6 @@
-﻿using System;
+﻿using NCrontab;
+using System.Globalization;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -14,9 +16,12 @@ namespace GameServerManager
         private readonly ServerBackupService _backupService;
         private readonly ProcessManager _processManager;
         private readonly Timer _timer;
+        private DateTime _lastBackupDate = DateTime.MinValue;
         private DateTime _lastUpdateDate = DateTime.MinValue;
         private int _updateInProgress = 0; // 0 = false, 1 = true
         private bool _disposed;
+        private bool _pendingUpdate = false;
+        private bool _pendingBackup = false;
 
         public bool UpdateInProgress => Interlocked.CompareExchange(ref _updateInProgress, 0, 0) == 1;
 
@@ -45,43 +50,120 @@ namespace GameServerManager
 
         private async Task AutoUpdateCheckAsync()
         {
+            // Only allow one operation at a time
+            if (UpdateInProgress)
+            {
+                _logger.LogInformation("Update or backup already in progress for {ServerName}. Skipping scheduled operations.", _gameServer.Name);
+                // If either is due, set pending flags
+                if (await IsTimeToUpdateServerAsync()) _pendingUpdate = true;
+                if (await IsTimeToBackupServerAsync()) _pendingBackup = true;
+                return;
+            }
+
+            // If a pending update or backup exists, run it first
+            if (_pendingUpdate)
+            {
+                _logger.LogInformation("Pending update for {ServerName} is being processed.", _gameServer.Name);
+                _pendingUpdate = false;
+                await UpdateServerAsync();
+                // After update, check if backup is now due and not running
+                if (!_pendingBackup && await IsTimeToBackupServerAsync())
+                {
+                    _pendingBackup = true;
+                }
+                if (_pendingBackup)
+                {
+                    await AutoUpdateCheckAsync();
+                }
+                return;
+            }
+            if (_pendingBackup)
+            {
+                _logger.LogInformation("Pending backup for {ServerName} is being processed.", _gameServer.Name);
+                _pendingBackup = false;
+                await BackupServerAsync();
+                // After backup, check if update is now due and not running
+                if (!_pendingUpdate && await IsTimeToUpdateServerAsync())
+                {
+                    _pendingUpdate = true;
+                }
+                if (_pendingUpdate)
+                {
+                    await AutoUpdateCheckAsync();
+                }
+                return;
+            }
+
+            // Prioritize update over backup if both are scheduled at the same time
             if (await IsTimeToUpdateServerAsync())
             {
                 await UpdateServerAsync();
+                // After update, check if backup is now due and not running
+                if (await IsTimeToBackupServerAsync())
+                {
+                    _pendingBackup = true;
+                    await AutoUpdateCheckAsync();
+                }
+                return;
+            }
+            if (await IsTimeToBackupServerAsync())
+            {
+                await BackupServerAsync();
+                // After backup, check if update is now due and not running
+                if (await IsTimeToUpdateServerAsync())
+                {
+                    _pendingUpdate = true;
+                    await AutoUpdateCheckAsync();
+                }
+                return;
             }
         }
 
         public async Task<bool> IsTimeToUpdateServerAsync()
         {
-            return await Task.FromResult(CheckUpdateConditions());
+            return await Task.FromResult(CheckUpdateConditions(_gameServer.AutoUpdate, _gameServer.AutoUpdateTime, ref _lastUpdateDate, "update"));
         }
 
-        private bool CheckUpdateConditions()
+        public async Task<bool> IsTimeToBackupServerAsync()
         {
-            if (_gameServer.AutoUpdate)
+            return await Task.FromResult(CheckUpdateConditions(_gameServer.AutoBackup, _gameServer.AutoBackupTime, ref _lastBackupDate, "backup"));
+        }
+
+        private bool CheckUpdateConditions(bool enabled, string schedule, ref DateTime lastRun, string type)
+        {
+            if (!enabled)
+                return false;
+            if (UpdateInProgress)
+                return false;
+            var now = DateTime.Now;
+            // Try CRON
+            try
             {
-                if (UpdateInProgress)
-                    return false;
-
-                var currentTime = DateTime.Now;
-                if (_lastUpdateDate.Date == currentTime.Date)
+                var cron = CrontabSchedule.Parse(schedule);
+                var next = cron.GetNextOccurrence(lastRun);
+                if (now >= next && (now - next).TotalMinutes < 30)
                 {
-                    _logger.LogInformation("Already updated {ServerName} today.", _gameServer.Name);
-                    return false;
-                }
-
-                if (!DateTime.TryParseExact(_gameServer.AutoUpdateBackupTime, "hh:mm tt", null, System.Globalization.DateTimeStyles.None, out var autoUpdateTime))
-                {
-                    _logger.LogWarning("Invalid AutoUpdateBackupTime for {ServerName}", _gameServer.Name);
-                    return false;
-                }
-                var autoUpdateTimeOfDay = autoUpdateTime.TimeOfDay;
-                var currentTimeOfDay = currentTime.TimeOfDay;
-                var autoUpdateEndTime = autoUpdateTimeOfDay.Add(TimeSpan.FromMinutes(5));
-                if (currentTimeOfDay >= autoUpdateTimeOfDay && currentTimeOfDay <= autoUpdateEndTime)
-                {
-                    _logger.LogInformation("Auto-update time reached for {ServerName}.", _gameServer.Name);
+                    lastRun = now;
+                    _logger.LogInformation($"CRON {type} time reached for {{ServerName}}.", _gameServer.Name);
                     return true;
+                }
+            }
+            catch
+            {
+                // Not a valid CRON, try time format
+                if (DateTime.TryParseExact(schedule, new[] { "HH:mm", "hh:mm tt", "H:mm", "h:mm tt" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out var scheduledTime))
+                {
+                    var scheduledToday = new DateTime(now.Year, now.Month, now.Day, scheduledTime.Hour, scheduledTime.Minute, 0);
+                    if (now >= scheduledToday && (now - scheduledToday).TotalMinutes < 30 && lastRun < scheduledToday)
+                    {
+                        lastRun = now;
+                        _logger.LogInformation($"Legacy {type} time reached for {{ServerName}}.", _gameServer.Name);
+                        return true;
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning($"Invalid {type} time format for {{ServerName}}: {{Schedule}}", _gameServer.Name, schedule);
                 }
             }
             return false;
@@ -96,10 +178,8 @@ namespace GameServerManager
             }
             try
             {
-                _lastUpdateDate = DateTime.Now;
                 bool needToRestartServer = false;
                 _logger.LogInformation("Updating {ServerName}...", _gameServer.Name);
-
                 // Stop process if running
                 if (await _processManager.IsProcessRunningAsync(_gameServer.ProcessName))
                 {
@@ -107,17 +187,6 @@ namespace GameServerManager
                     _logger.LogInformation("Process for {ServerName} is running. Stopping server.", _gameServer.Name);
                     await _processManager.StopProcessAsync(_gameServer.ProcessName);
                 }
-
-                // Backup
-                if (_gameServer.AutoBackup)
-                {
-                    var backupResult = await _backupService.BackupAsync(_gameServer);
-                    if (backupResult)
-                        _logger.LogInformation("Backup completed for {ServerName}.", _gameServer.Name);
-                    else
-                        _logger.LogError("Backup failed for {ServerName}. Proceeding with update.", _gameServer.Name);
-                }
-
                 // Update
                 if (_gameServer.AutoUpdate)
                 {
@@ -128,7 +197,6 @@ namespace GameServerManager
                         return false;
                     }
                 }
-
                 // Restart
                 if (needToRestartServer)
                 {
@@ -142,6 +210,55 @@ namespace GameServerManager
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Exception occurred while updating {ServerName}", _gameServer.Name);
+                return false;
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _updateInProgress, 0);
+            }
+        }
+
+        public async Task<bool> BackupServerAsync()
+        {
+            if (Interlocked.CompareExchange(ref _updateInProgress, 1, 0) == 1)
+            {
+                _logger.LogInformation("Backup already in progress for {ServerName}...", _gameServer.Name);
+                return false;
+            }
+            try
+            {
+                bool needToRestartServer = false;
+                _logger.LogInformation("Backing up {ServerName}...", _gameServer.Name);
+                // Stop process if running, unless BackupWithoutShutdown is true
+                if (!_gameServer.BackupWithoutShutdown && await _processManager.IsProcessRunningAsync(_gameServer.ProcessName))
+                {
+                    needToRestartServer = true;
+                    _logger.LogInformation("Process for {ServerName} is running. Stopping server.", _gameServer.Name);
+                    await _processManager.StopProcessAsync(_gameServer.ProcessName);
+                }
+                // Backup
+                if (_gameServer.AutoBackup)
+                {
+                    var backupResult = await _backupService.BackupAsync(_gameServer);
+                    if (!backupResult)
+                    {
+                        _logger.LogError("Backup failed for {ServerName}.", _gameServer.Name);
+                        return false;
+                    }
+                }
+                // Restart
+                if (needToRestartServer)
+                {
+                    _logger.LogInformation("Restarting process for {ServerName}", _gameServer.Name);
+                    await _processManager.StartProcessAsync(_gameServer);
+                    _logger.LogInformation("Waiting 30 seconds for {ServerName} to start.", _gameServer.Name);
+                    await Task.Delay(TimeSpan.FromSeconds(30));
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Exception occurred while backing up {ServerName}", _gameServer.Name);
                 return false;
             }
             finally

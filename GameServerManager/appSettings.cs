@@ -22,17 +22,16 @@ namespace GameServerManager
         public string GamePath { get; set; } = string.Empty;
         public string ServerExe { get; set; } = string.Empty;
         public string ServerArgs { get; set; } = string.Empty;
-
         public string SteamAppId { get; set; } = string.Empty;
-
         public bool AutoRestart { get; set; } = false;
         public bool AutoUpdate { get; set; } = false;
-        public string AutoUpdateBackupTime { get; set; } = "05:30 AM";
+        public string AutoUpdateTime { get; set; } = "05:30 AM";
         public bool AutoBackup { get; set; } = false;
+        public string AutoBackupTime { get; set; } = "05:30 AM";
         public string AutoBackupSource { get; set; } = string.Empty;
         public string AutoBackupDest { get; set; } = string.Empty;
-        public int AutoBackupDaysToKeep { get; set; } = 30;
-
+        public int AutoBackupsToKeep { get; set; } = 30;
+        public bool BackupWithoutShutdown { get; set; } = false;
     }
 
     public interface IFileSystem

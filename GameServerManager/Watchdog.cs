@@ -46,13 +46,18 @@ namespace GameServerManager
                     await _updater.UpdateServerAsync();
                 }
             }
-
+            if (_gameServer.AutoBackup)
+            {
+                if (await _updater.IsTimeToBackupServerAsync())
+                {
+                    await _updater.BackupServerAsync();
+                }
+            }
             if (_updater.UpdateInProgress)
             {
-                _logger.LogInformation("Update in progress for {ServerName}. Skipping process check.", _gameServer.Name);
+                _logger.LogInformation("Update or backup in progress for {ServerName}. Skipping process check.", _gameServer.Name);
                 return;
             }
-
             _logger.LogInformation("Checking process for {ServerName}", _gameServer.Name);
             var process = System.Diagnostics.Process.GetProcessesByName(_gameServer.ProcessName).FirstOrDefault();
             if (process == null || process.HasExited)
