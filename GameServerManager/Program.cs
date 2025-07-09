@@ -64,6 +64,69 @@ namespace GameServerManager
                 }
             }
 
+            // Log configured game servers and their next backup/update times
+            logger.LogInformation("Configured game servers:");
+            foreach (var gameServer in appSettings.GameServers)
+            {
+                string nextUpdate = "none";
+                string nextBackup = "none";
+                if (gameServer.AutoUpdate && !string.IsNullOrWhiteSpace(gameServer.AutoUpdateTime))
+                {
+                    try
+                    {
+                        var now = DateTime.Now;
+                        // Try CRON first
+                        try
+                        {
+                            var cron = NCrontab.CrontabSchedule.Parse(gameServer.AutoUpdateTime);
+                            var next = cron.GetNextOccurrence(now);
+                            nextUpdate = next.ToString("yyyy-MM-dd HH:mm:ss");
+                        }
+                        catch
+                        {
+                            // Not a valid CRON, try time format
+                            if (DateTime.TryParseExact(gameServer.AutoUpdateTime, new[] { "HH:mm", "hh:mm tt", "H:mm", "h:mm tt" }, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var scheduledTime))
+                            {
+                                var scheduledToday = new DateTime(now.Year, now.Month, now.Day, scheduledTime.Hour, scheduledTime.Minute, 0);
+                                if (scheduledToday > now)
+                                    nextUpdate = scheduledToday.ToString("yyyy-MM-dd HH:mm:ss");
+                                else
+                                    nextUpdate = scheduledToday.AddDays(1).ToString("yyyy-MM-dd HH:mm:ss");
+                            }
+                        }
+                    }
+                    catch { }
+                }
+                if (gameServer.AutoBackup && !string.IsNullOrWhiteSpace(gameServer.AutoBackupTime))
+                {
+                    try
+                    {
+                        var now = DateTime.Now;
+                        // Try CRON first
+                        try
+                        {
+                            var cron = NCrontab.CrontabSchedule.Parse(gameServer.AutoBackupTime);
+                            var next = cron.GetNextOccurrence(now);
+                            nextBackup = next.ToString("yyyy-MM-dd HH:mm:ss");
+                        }
+                        catch
+                        {
+                            // Not a valid CRON, try time format
+                            if (DateTime.TryParseExact(gameServer.AutoBackupTime, new[] { "HH:mm", "hh:mm tt", "H:mm", "h:mm tt" }, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var scheduledTime))
+                            {
+                                var scheduledToday = new DateTime(now.Year, now.Month, now.Day, scheduledTime.Hour, scheduledTime.Minute, 0);
+                                if (scheduledToday > now)
+                                    nextBackup = scheduledToday.ToString("yyyy-MM-dd HH:mm:ss");
+                                else
+                                    nextBackup = scheduledToday.AddDays(1).ToString("yyyy-MM-dd HH:mm:ss");
+                            }
+                        }
+                    }
+                    catch { }
+                }
+                logger.LogInformation("  {ServerName}: Next Update: {NextUpdate}, Next Backup: {NextBackup}", gameServer.Name, nextUpdate, nextBackup);
+            }
+
             // Setup watchdog for each game server that has AutoRestart enabled
             var watchdogs = new List<Watchdog>();
             var updaters = new List<ServerUpdater>();
