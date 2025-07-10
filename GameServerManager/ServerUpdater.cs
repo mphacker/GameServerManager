@@ -140,10 +140,13 @@ namespace GameServerManager
             try
             {
                 var cron = CrontabSchedule.Parse(schedule);
-                var next = cron.GetNextOccurrence(lastRun);
-                if (now >= next && (now - next).TotalMinutes < 30)
+                // Find the most recent scheduled time before now
+                var prev = cron.GetNextOccurrence(lastRun.AddSeconds(-1));
+                if (prev > now) prev = cron.GetNextOccurrence(now.AddSeconds(-60)); // fallback
+                // If lastRun < prev and now >= prev, it's time to run
+                if (lastRun < prev && now >= prev)
                 {
-                    lastRun = now;
+                    lastRun = prev;
                     _logger.LogInformation($"CRON {type} time reached for {{ServerName}}.", _gameServer.Name);
                     return true;
                 }
@@ -154,9 +157,13 @@ namespace GameServerManager
                 if (DateTime.TryParseExact(schedule, new[] { "HH:mm", "hh:mm tt", "H:mm", "h:mm tt" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out var scheduledTime))
                 {
                     var scheduledToday = new DateTime(now.Year, now.Month, now.Day, scheduledTime.Hour, scheduledTime.Minute, 0);
-                    if (now >= scheduledToday && (now - scheduledToday).TotalMinutes < 30 && lastRun < scheduledToday)
+                    var scheduledPrev = scheduledToday;
+                    if (now < scheduledToday)
+                        scheduledPrev = scheduledToday.AddDays(-1);
+                    // If lastRun < scheduledPrev and now >= scheduledPrev, it's time to run
+                    if (lastRun < scheduledPrev && now >= scheduledPrev)
                     {
-                        lastRun = now;
+                        lastRun = scheduledPrev;
                         _logger.LogInformation($"Legacy {type} time reached for {{ServerName}}.", _gameServer.Name);
                         return true;
                     }
