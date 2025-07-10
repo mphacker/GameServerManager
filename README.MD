@@ -15,8 +15,9 @@ Game Server Manager supports managing multiple Steam servers simultaneously. Con
 ## Configuration
 
 ### Example Configuration (`appsettings.json`)
+Below is an example configuration for the game **Icarus**:
 ```
-Below is an example configuration for the game **Icarus**:{
+{
   "SteamCMDPath": "D:\\steamcmd\\steamcmd.exe",
   "GameServers": [
     {
