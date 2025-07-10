@@ -389,35 +389,25 @@ internal class Program
                     }
                     goto case "8";
                 case "8":
-                    if (anyNotificationEnabled)
+                    // Always save both settings and notificationSettings, merging them if needed
+                    var merged = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+                    var mergedDoc = JsonDocument.Parse(merged);
+                    using (var stream = new MemoryStream())
+                    using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
                     {
-                        // Save both settings and notificationSettings
-                        var merged = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
-                        var mergedDoc = JsonDocument.Parse(merged);
-                        using (var stream = new MemoryStream())
-                        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
-                        {
-                            writer.WriteStartObject();
-                            foreach (var prop in mergedDoc.RootElement.EnumerateObject())
-                                prop.WriteTo(writer);
-                            writer.WritePropertyName("Notification");
-                            JsonSerializer.Serialize(writer, notificationSettings, new JsonSerializerOptions { WriteIndented = true });
-                            writer.WriteEndObject();
-                            writer.Flush();
-                            File.WriteAllText(configPath, Encoding.UTF8.GetString(stream.ToArray()));
-                        }
-                        Console.ForegroundColor = ConsoleColor.Green;
-                        Console.WriteLine("Configuration saved.");
-                        Console.ResetColor();
-                        return;
+                        writer.WriteStartObject();
+                        foreach (var prop in mergedDoc.RootElement.EnumerateObject())
+                            prop.WriteTo(writer);
+                        writer.WritePropertyName("Notification");
+                        JsonSerializer.Serialize(writer, notificationSettings, new JsonSerializerOptions { WriteIndented = true });
+                        writer.WriteEndObject();
+                        writer.Flush();
+                        File.WriteAllText(configPath, Encoding.UTF8.GetString(stream.ToArray()));
                     }
-                    else
-                    {
-                        Console.ForegroundColor = ConsoleColor.Green;
-                        Console.WriteLine("Configuration saved.");
-                        Console.ResetColor();
-                        return;
-                    }
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine("Configuration saved.");
+                    Console.ResetColor();
+                    return;
                 case "9":
                     if (anyNotificationEnabled)
                     {
