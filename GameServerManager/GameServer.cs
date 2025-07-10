@@ -17,4 +17,7 @@ public class GameServer
     public bool BackupWithoutShutdown { get; set; } = false;
     // Optionally keep AutoUpdateBackupTime for migration/compatibility
     // public string AutoUpdateBackupTime { get; set; } = string.Empty;
+
+    public DateTime? LastUpdateDate { get; set; }
+    public DateTime? LastBackupDate { get; set; }
 }

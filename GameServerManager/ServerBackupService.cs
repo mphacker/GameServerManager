@@ -11,10 +11,12 @@ namespace GameServerManager
     {
         private readonly ILogger _logger;
         private readonly IFileSystem _fileSystem;
-        public ServerBackupService(ILogger logger, IFileSystem? fileSystem = null)
+        private readonly NotificationManager? _notificationManager;
+        public ServerBackupService(ILogger logger, NotificationManager? notificationManager = null, IFileSystem? fileSystem = null)
         {
             _logger = logger;
             _fileSystem = fileSystem ?? new FileSystem();
+            _notificationManager = notificationManager;
         }
 
         public async Task<bool> BackupAsync(GameServer gameServer)
@@ -24,6 +26,7 @@ namespace GameServerManager
             if (string.IsNullOrEmpty(gameServer.AutoBackupSource) || string.IsNullOrEmpty(gameServer.AutoBackupDest))
             {
                 _logger.LogWarning("Invalid backup source or destination for {ServerName}", gameServer.Name);
+                _notificationManager?.NotifyError($"Backup config error for {gameServer.Name}", "Invalid backup source or destination.");
                 return false;
             }
             var processRunning = System.Diagnostics.Process.GetProcessesByName(gameServer.ProcessName).Any(p => !p.HasExited);
@@ -42,6 +45,7 @@ namespace GameServerManager
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error creating backup for {ServerName}", gameServer.Name);
+                _notificationManager?.NotifyError($"Error during backup for {gameServer.Name}", ex.ToString());
                 return false;
             }
             // Clean up old backups: keep only the most recent N backups
@@ -64,6 +68,7 @@ namespace GameServerManager
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error cleaning up old backups for {ServerName}", gameServer.Name);
+                _notificationManager?.NotifyError($"Error cleaning up backups for {gameServer.Name}", ex.ToString());
                 return false;
             }
             return true;
