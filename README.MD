@@ -89,7 +89,7 @@ Follow the prompts to set up your configuration interactively.
 
 ## Running the Application
 Once the `appsettings.json` file is configured (manually or via CLI), start the application by running:
-GameServerManager.exe
+`GameServerManager.exe`
 The watchdog process will begin monitoring the servers. Auto updates and backups will occur as scheduled.
 
 ---
