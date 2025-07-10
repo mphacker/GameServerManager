@@ -19,7 +19,7 @@ namespace GameServerManager
         {
             if (!_fileSystem.FileExists(steamCmdPath))
             {
-                _logger.LogError("SteamCMD path does not exist: {Path}", steamCmdPath);
+                Program.LogWithStatus(_logger, LogLevel.Error, $"SteamCMD path does not exist: {steamCmdPath}");
                 return false;
             }
             var steamCmdArgs = $"+login anonymous +force_install_dir \"{gameServer.GamePath}\" +app_update {gameServer.SteamAppId} validate +quit";
@@ -32,30 +32,30 @@ namespace GameServerManager
                 RedirectStandardError = true,
                 CreateNoWindow = true
             };
-            _logger.LogInformation("Running SteamCMD at {Path} with arguments: {Args}", steamCmdPath, steamCmdArgs);
+            Program.LogWithStatus(_logger, LogLevel.Information, $"Running SteamCMD at {steamCmdPath} with arguments: {steamCmdArgs}");
             try
             {
                 using var updateProcess = new Process { StartInfo = startInfo };
-                updateProcess.OutputDataReceived += (sender, e) => { if (e.Data != null) _logger.LogInformation("SteamCMD Output: {Data}", e.Data); };
-                updateProcess.ErrorDataReceived += (sender, e) => { if (e.Data != null) _logger.LogError("SteamCMD Error: {Data}", e.Data); };
+                updateProcess.OutputDataReceived += (sender, e) => { if (e.Data != null) Program.LogWithStatus(_logger, LogLevel.Information, $"SteamCMD Output: {e.Data}"); };
+                updateProcess.ErrorDataReceived += (sender, e) => { if (e.Data != null) Program.LogWithStatus(_logger, LogLevel.Error, $"SteamCMD Error: {e.Data}"); };
                 updateProcess.Start();
                 updateProcess.BeginOutputReadLine();
                 updateProcess.BeginErrorReadLine();
                 await updateProcess.WaitForExitAsync();
                 if (updateProcess.ExitCode == 0)
                 {
-                    _logger.LogInformation("Update completed successfully for {ServerName}.", gameServer.Name);
+                    Program.LogWithStatus(_logger, LogLevel.Information, $"Update completed successfully for {gameServer.Name}.");
                     return true;
                 }
                 else
                 {
-                    _logger.LogError("Update failed for {ServerName}. Exit code: {ExitCode}", gameServer.Name, updateProcess.ExitCode);
+                    Program.LogWithStatus(_logger, LogLevel.Error, $"Update failed for {gameServer.Name}. Exit code: {updateProcess.ExitCode}");
                     return false;
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Exception running SteamCMD for {ServerName}", gameServer.Name);
+                Program.LogWithStatus(_logger, LogLevel.Error, $"Exception running SteamCMD for {gameServer.Name}: {ex.Message}");
                 return false;
             }
         }

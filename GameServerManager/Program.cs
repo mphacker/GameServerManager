@@ -8,19 +8,41 @@ using Serilog;
 using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
+using ILogger = Microsoft.Extensions.Logging.ILogger;
 
 internal class Program
 {
-    // Remove fixed StatusLines/ErrorLines, use dynamic layout
     private static readonly ConcurrentQueue<string> ErrorQueue = new();
-    private static readonly ConcurrentQueue<string> RecentActions = new(); // For last 10 actions
+    private static readonly ConcurrentQueue<string> RecentActions = new();
     private static List<GameServer> _gameServers = new();
     private static Timer? _statusTimer;
     private static bool _statusFirstDraw = true;
 
+    /// <summary>
+    /// Application entry point. Handles startup, configuration, DI, and CLI.
+    /// </summary>
     static void Main(string[] args)
     {
-        // Configure Serilog for file logging only
+        ConfigureLogging();
+        if (HandleCliCommands(args)) return;
+        var configuration = LoadConfiguration();
+        var serviceProvider = ConfigureDependencyInjection(configuration);
+        var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
+        var appSettings = configuration.Get<Settings>() ?? new();
+        _gameServers = appSettings.GameServers ?? new List<GameServer>();
+        var notificationManager = serviceProvider.GetRequiredService<NotificationManager>();
+        _statusTimer = new(_ => SafeDrawStatus(), null, 0, 2000);
+        LogWithStatus(logger, LogLevel.Information, "Game Server Manager starting up...");
+        if (!ValidateAndLogConfiguration(appSettings, logger)) return;
+        CleanGamePaths(appSettings, logger);
+        LogConfiguredServers(appSettings, logger);
+        StartWatchdogsAndUpdaters(appSettings, serviceProvider, notificationManager, logger);
+        var resetEvent = new ManualResetEvent(false);
+        resetEvent.WaitOne();
+    }
+
+    private static void ConfigureLogging()
+    {
         var serilogLogger = new LoggerConfiguration()
             .MinimumLevel.Information()
             .WriteTo.File(
@@ -31,97 +53,152 @@ internal class Program
             )
             .CreateLogger();
         Serilog.Log.Logger = serilogLogger;
+    }
 
-        // CLI configuration mode
+    private static bool HandleCliCommands(string[] args)
+    {
         if (args.Length > 0 && args[0].Equals("config", StringComparison.OrdinalIgnoreCase))
         {
             RunConfigCli();
-            return;
+            return true;
         }
+        if (args.Length > 0 && (args[0].Equals("--help", StringComparison.OrdinalIgnoreCase) || args[0].Equals("/?")))
+        {
+            ShowHelp();
+            return true;
+        }
+        return false;
+    }
 
-        // Setup DI and logging
+    private static void ShowHelp()
+    {
+        Console.WriteLine("GameServerManager CLI Usage:");
+        Console.WriteLine("  GameServerManager [command]");
+        Console.WriteLine();
+        Console.WriteLine("Commands:");
+        Console.WriteLine("  config     Launch interactive configuration CLI");
+        Console.WriteLine("  --help, /? Show this help message");
+        Console.WriteLine();
+        Console.WriteLine("If no command is specified, the server manager will start normally.");
+    }
+
+    private static ServiceProvider ConfigureDependencyInjection(IConfiguration configuration)
+    {
         var serviceCollection = new ServiceCollection();
-        ConfigureServices(serviceCollection);
-        var serviceProvider = serviceCollection.BuildServiceProvider();
-        var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
+        serviceCollection.AddSingleton(configuration);
+        serviceCollection.AddLogging(configure =>
+        {
+            configure.AddSerilog();
+            configure.SetMinimumLevel(LogLevel.Information);
+        });
+        serviceCollection.AddSingleton<ILogger<ServerUpdater>, Logger<ServerUpdater>>();
+        serviceCollection.AddSingleton<ILogger<Watchdog>, Logger<Watchdog>>();
+        serviceCollection.AddSingleton<NotificationManager>();
+        return serviceCollection.BuildServiceProvider();
+    }
 
-        // Load appsettings.json into AppSettings model
-        var configuration = new ConfigurationBuilder()
+    private static IConfigurationRoot LoadConfiguration()
+    {
+        return new ConfigurationBuilder()
             .SetBasePath(Directory.GetCurrentDirectory())
             .AddJsonFile("appsettings.json")
             .Build();
-        var appSettings = configuration.Get<Settings>() ?? new();
-        _gameServers = appSettings.GameServers ?? new List<GameServer>();
+    }
 
-        // Initialization extensible notification manager
-        var notificationManager = new NotificationManager(configuration);
+    // Centralized logging and status helper
+    public static void LogWithStatus(ILogger? logger, LogLevel level, string message)
+    {
+        switch (level)
+        {
+            case LogLevel.Information:
+                logger?.LogInformation(message);
+                AddRecentAction(message);
+                break;
+            case LogLevel.Warning:
+                logger?.LogWarning(message);
+                AddRecentAction(message);
+                break;
+            case LogLevel.Error:
+                logger?.LogError(message);
+                LogError(message);
+                break;
+            case LogLevel.Critical:
+                logger?.LogCritical(message);
+                LogError(message);
+                break;
+            default:
+                logger?.Log(level, message);
+                break;
+        }
+    }
 
-        // Start status redraw timer
-        _statusTimer = new(_ => DrawStatus(), null, 0, 2000);
-
-        logger.LogInformation("Game Server Manager starting up...");
-        AddRecentAction("Game Server Manager starting up...");
-
-        // Validate configuration
+    private static bool ValidateAndLogConfiguration(Settings appSettings, ILogger logger)
+    {
         var validationErrors = ConfigurationValidator.Validate(appSettings);
         if (validationErrors.Count > 0 || appSettings.GameServers == null)
         {
             foreach (var error in validationErrors)
             {
-                logger.LogError(error);
-                AddRecentAction($"ERROR: {error}");
+                LogWithStatus(logger, LogLevel.Error, error);
             }
-            return;
+            return false;
         }
+        return true;
+    }
 
-        // Remove trailing backslash from GamePath
-        foreach (var gameServer in appSettings.GameServers)
-        {
-            if (gameServer.GamePath.EndsWith("\\"))
+    private static void CleanGamePaths(Settings appSettings, ILogger logger)
+    {
+        if (appSettings.GameServers!=null)
+            foreach (var gameServer in appSettings.GameServers)
             {
-                gameServer.GamePath = gameServer.GamePath.TrimEnd('\\');
-                logger.LogWarning("Game path for {ServerName} has a trailing backslash. Removing it.", gameServer.Name);
-                AddRecentAction($"Warning: Game path for {gameServer.Name} had a trailing backslash removed.");
+                if (gameServer.GamePath.EndsWith("\\"))
+                {
+                    gameServer.GamePath = gameServer.GamePath.TrimEnd('\\');
+                    LogWithStatus(logger, LogLevel.Warning, $"Game path for {gameServer.Name} has a trailing backslash. Removing it.");
+                }
             }
-        }
+    }
 
-        // Log\ configured game servers and their next backup/update times
+    private static void LogConfiguredServers(Settings appSettings, ILogger logger)
+    {
         logger.LogInformation("Configured game servers:");
-        foreach (var gameServer in appSettings.GameServers)
-        {
-            string nextUpdate = GetNextScheduledTime(gameServer.AutoUpdate, gameServer.AutoUpdateTime);
-            string nextBackup = GetNextScheduledTime(gameServer.AutoBackup, gameServer.AutoBackupTime);
-            logger.LogInformation("  {ServerName}: Next Update: {NextUpdate}, Next Backup: {NextBackup}", gameServer.Name, nextUpdate, nextBackup);
-            AddRecentAction($"Configured {gameServer.Name}: Next Update: {nextUpdate}, Next Backup: {nextBackup}");
-        }
+        if(appSettings.GameServers!=null)
+            foreach (var gameServer in appSettings.GameServers)
+            {
+                string nextUpdate = GetNextScheduledTime(gameServer.AutoUpdate, gameServer.AutoUpdateTime);
+                string nextBackup = GetNextScheduledTime(gameServer.AutoBackup, gameServer.AutoBackupTime);
+                logger.LogInformation($"  {gameServer.Name}: Next Update: {nextUpdate}, Next Backup: {nextBackup}");
+            }
+    }
 
-        // Setup watchdog for each game server that has AutoRestart enabled
+    private static void StartWatchdogsAndUpdaters(Settings appSettings, ServiceProvider serviceProvider, NotificationManager notificationManager, ILogger logger)
+    {
         var watchdogs = new List<Watchdog>();
         var updaters = new List<ServerUpdater>();
-        foreach (var gameServer in appSettings.GameServers)
-        {
-            if (gameServer.AutoRestart)
+        if (appSettings.GameServers!=null)
+            foreach (var gameServer in appSettings.GameServers)
             {
-                var watchdogLogger = serviceProvider.GetRequiredService<ILogger<Watchdog>>();
-                var updaterLogger = serviceProvider.GetRequiredService<ILogger<ServerUpdater>>();
-                var watchdog = new Watchdog(gameServer, appSettings.SteamCMDPath, watchdogLogger, updaterLogger, notificationManager);
-                watchdogs.Add(watchdog);
-                watchdog.Start();
-                AddRecentAction($"Watchdog started for {gameServer.Name}");
+                if (gameServer.AutoRestart)
+                {
+                    var watchdogLogger = serviceProvider.GetRequiredService<ILogger<Watchdog>>();
+                    var updaterLogger = serviceProvider.GetRequiredService<ILogger<ServerUpdater>>();
+                    var watchdog = new Watchdog(gameServer, appSettings.SteamCMDPath, watchdogLogger, updaterLogger, notificationManager);
+                    watchdogs.Add(watchdog);
+                    watchdog.Start();
+                }
+                else if (gameServer.AutoUpdate || gameServer.AutoBackup)
+                {
+                    var updaterLogger = serviceProvider.GetRequiredService<ILogger<ServerUpdater>>();
+                    var updater = new ServerUpdater(gameServer, appSettings.SteamCMDPath, updaterLogger, notificationManager);
+                    updaters.Add(updater);
+                    updater.Start();
+                }
             }
-            else if (gameServer.AutoUpdate || gameServer.AutoBackup)
-            {
-                var updaterLogger = serviceProvider.GetRequiredService<ILogger<ServerUpdater>>();
-                var updater = new ServerUpdater(gameServer, appSettings.SteamCMDPath, updaterLogger, notificationManager);
-                updaters.Add(updater);
-                updater.Start();
-                AddRecentAction($"Updater started for {gameServer.Name}");
-            }
-        }
+    }
 
-        // Keep the program running without using CPU cycles
-        var resetEvent = new ManualResetEvent(false);
-        resetEvent.WaitOne();
+    private static void SafeDrawStatus()
+    {
+        try { DrawStatus(); } catch (Exception ex) { LogWithStatus(null, LogLevel.Error, $"Exception in DrawStatus: {ex}"); }
     }
 
     // Helper to get next scheduled time as a date/time string
@@ -160,15 +237,12 @@ internal class Program
             RecentActions.TryDequeue(out _);
     }
 
-    public static void Log(string message, bool isError = false)
+    public static void LogError(string message)
     {
-        if (isError)
-        {
-            // Only keep the last error
-            while (ErrorQueue.TryDequeue(out _)) { }
-            var entry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}";
-            ErrorQueue.Enqueue(entry);
-        }
+        // Only keep the last error
+        while (ErrorQueue.TryDequeue(out _)) { }
+        var entry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}";
+        ErrorQueue.Enqueue(entry);
         // No console log, only file log
     }
 
@@ -301,17 +375,6 @@ internal class Program
                 Console.Write(new string(' ', Console.WindowWidth - 1));
             }
         }
-    }
-
-    private static void ConfigureServices(IServiceCollection services)
-    {
-        services.AddLogging(configure =>
-        {
-            configure.AddSerilog();
-            configure.SetMinimumLevel(LogLevel.Information);
-        });
-        services.AddSingleton<ILogger<ServerUpdater>, Logger<ServerUpdater>>();
-        services.AddSingleton<ILogger<Watchdog>, Logger<Watchdog>>();
     }
 
     private static void RunConfigCli()

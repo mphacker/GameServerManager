@@ -81,14 +81,14 @@ namespace GameServerManager
                     await Task.Run(() => process.WaitForExit(10000));
                     if (!process.HasExited)
                     {
-                        _logger.LogWarning("Process {ProcessName} did not exit in time. Killing process.", processName);
+                        Program.LogWithStatus(_logger, LogLevel.Warning, $"Process {processName} did not exit in time. Killing process.");
                         process.Kill();
                     }
-                    _logger.LogInformation("Process {ProcessName} stopped.", processName);
+                    Program.LogWithStatus(_logger, LogLevel.Information, $"Process {processName} stopped.");
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error stopping process {ProcessName}", processName);
+                    Program.LogWithStatus(_logger, LogLevel.Error, $"Error stopping process {processName}: {ex.Message}");
                 }
             }
         }
@@ -99,7 +99,7 @@ namespace GameServerManager
                 throw new ArgumentNullException(nameof(gameServer));
             if (string.IsNullOrWhiteSpace(gameServer.GamePath) || string.IsNullOrWhiteSpace(gameServer.ServerExe))
             {
-                _logger.LogError("GamePath or ServerExe is null or empty for {ServerName}", gameServer?.Name);
+                Program.LogWithStatus(_logger, LogLevel.Error, $"GamePath or ServerExe is null or empty for {gameServer?.Name}");
                 return;
             }
             var startInfo = new ProcessStartInfo

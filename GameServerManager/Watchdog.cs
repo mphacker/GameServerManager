@@ -28,7 +28,7 @@ namespace GameServerManager
 
         public void Start()
         {
-            _logger.LogInformation("Watchdog started for {ServerName}", _gameServer.Name);
+            Program.LogWithStatus(_logger, LogLevel.Information, $"Watchdog started for {_gameServer.Name}");
             _timer.AutoReset = true;
             _timer.Enabled = true;
             _timer.Start();
@@ -36,7 +36,7 @@ namespace GameServerManager
 
         public void Stop()
         {
-            _logger.LogInformation("Watchdog stopped for {ServerName}", _gameServer.Name);
+            Program.LogWithStatus(_logger, LogLevel.Information, $"Watchdog stopped for {_gameServer.Name}");
             _timer.Stop();
         }
 
@@ -55,7 +55,7 @@ namespace GameServerManager
                     await _updater.UpdateServerAsync();
                 }
             }
-            Program.AddRecentAction($"Checking process for {_gameServer.Name}");
+            Program.LogWithStatus(_logger, LogLevel.Information, $"Checking process for {_gameServer.Name}");
             if (_gameServer.AutoUpdate)
             {
                 if (await _updater.IsTimeToUpdateServerAsync())
@@ -72,26 +72,24 @@ namespace GameServerManager
             }
             if (_updater.UpdateInProgress)
             {
-                _logger.LogInformation("Update or backup in progress for {ServerName}. Skipping process check.", _gameServer.Name);
+                Program.LogWithStatus(_logger, LogLevel.Information, $"Update or backup in progress for {_gameServer.Name}. Skipping process check.");
                 return;
             }
-            _logger.LogInformation("Checking process for {ServerName}", _gameServer.Name);
             var process = System.Diagnostics.Process.GetProcessesByName(_gameServer.ProcessName).FirstOrDefault();
             if (process == null || process.HasExited)
             {
-                _logger.LogWarning("Process for {ServerName} not found. Restarting...", _gameServer.Name);
-                Program.AddRecentAction($"Process for {_gameServer.Name} not found. Restarting...");
+                Program.LogWithStatus(_logger, LogLevel.Warning, $"Process for {_gameServer.Name} not found. Restarting...");
                 StartGameServer();
             }
             else
             {
-                _logger.LogInformation("Process for {ServerName} is running.", _gameServer.Name);
+                Program.LogWithStatus(_logger, LogLevel.Information, $"Process for {_gameServer.Name} is running.");
             }
         }
 
         private void StartGameServer()
         {
-            _logger.LogInformation("Watchdog is restarting process for {ServerName}", _gameServer.Name);
+            Program.LogWithStatus(_logger, LogLevel.Information, $"Watchdog is restarting process for {_gameServer.Name}");
             try
             {
                 var startInfo = new System.Diagnostics.ProcessStartInfo
@@ -105,12 +103,12 @@ namespace GameServerManager
                 {
                     process.StartInfo = startInfo;
                     process.Start();
-                    _logger.LogInformation("Process for {ServerName} started.", _gameServer.Name);
+                    Program.LogWithStatus(_logger, LogLevel.Information, $"Process for {_gameServer.Name} started.");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error starting or restarting {ServerName}", _gameServer.Name);
+                Program.LogWithStatus(_logger, LogLevel.Error, $"Error starting or restarting {_gameServer.Name}: {ex.Message}");
                 _notificationManager?.NotifyError($"Error starting/restarting {_gameServer.Name}", ex.ToString());
             }
         }

@@ -257,19 +257,18 @@ public class ServerUpdater : IAsyncDisposable
     {
         if (Interlocked.CompareExchange(ref _updateInProgress, 1, 0) == 1)
         {
-            _logger.LogInformation("Update already in progress for {ServerName}...", _gameServer.Name);
+            Program.LogWithStatus(_logger, LogLevel.Information, $"Update already in progress for {_gameServer.Name}...");
             return false;
         }
-        Program.AddRecentAction($"Update started for {_gameServer.Name}");
+        Program.LogWithStatus(_logger, LogLevel.Information, $"Updating {_gameServer.Name}...");
         try
         {
             bool needToRestartServer = false;
-            _logger.LogInformation("Updating {ServerName}...", _gameServer.Name);
             // Stop process if running
             if (await _processManager.IsProcessRunningAsync(_gameServer.ProcessName))
             {
                 needToRestartServer = true;
-                _logger.LogInformation("Process for {ServerName} is running. Stopping server.", _gameServer.Name);
+                Program.LogWithStatus(_logger, LogLevel.Information, $"Process for {_gameServer.Name} is running. Stopping server.");
                 await _processManager.StopProcessAsync(_gameServer.ProcessName);
             }
             // Update
@@ -278,9 +277,8 @@ public class ServerUpdater : IAsyncDisposable
                 var updateResult = await _updateService.UpdateAsync(_gameServer, _steamCmdPath);
                 if (!updateResult)
                 {
-                    _logger.LogError("Update failed for {ServerName}.", _gameServer.Name);
+                    Program.LogWithStatus(_logger, LogLevel.Error, $"Update failed for {_gameServer.Name}");
                     NotificationManager?.NotifyError($"Update failed for {_gameServer.Name}", $"Update failed for {_gameServer.Name}.");
-                    Program.Log($"Update failed for {_gameServer.Name}", true);
                     return false;
                 }
                 // Persist last update date
@@ -291,19 +289,18 @@ public class ServerUpdater : IAsyncDisposable
             // Restart
             if (needToRestartServer)
             {
-                _logger.LogInformation("Restarting process for {ServerName}", _gameServer.Name);
+                Program.LogWithStatus(_logger, LogLevel.Information, $"Restarting process for {_gameServer.Name}");
                 await _processManager.StartProcessAsync(_gameServer);
-                _logger.LogInformation("Waiting 30 seconds for {ServerName} to start.", _gameServer.Name);
+                Program.LogWithStatus(_logger, LogLevel.Information, $"Waiting 30 seconds for {_gameServer.Name} to start.");
                 await Task.Delay(TimeSpan.FromSeconds(30));
             }
-            Program.AddRecentAction($"Update completed for {_gameServer.Name}");
+            Program.LogWithStatus(_logger, LogLevel.Information, $"Update completed for {_gameServer.Name}");
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Exception occurred while updating {ServerName}", _gameServer.Name);
+            Program.LogWithStatus(_logger, LogLevel.Error, $"Update error for {_gameServer.Name}: {ex.Message}");
             NotificationManager?.NotifyError($"Exception updating {_gameServer.Name}", ex.ToString());
-            Program.Log($"Update error for {_gameServer.Name}: {ex.Message}", true);
             return false;
         }
         finally
@@ -316,19 +313,18 @@ public class ServerUpdater : IAsyncDisposable
     {
         if (Interlocked.CompareExchange(ref _updateInProgress, 1, 0) == 1)
         {
-            _logger.LogInformation("Backup already in progress for {ServerName}...", _gameServer.Name);
+            Program.LogWithStatus(_logger, LogLevel.Information, $"Backup already in progress for {_gameServer.Name}...");
             return false;
         }
-        Program.AddRecentAction($"Backup started for {_gameServer.Name}");
+        Program.LogWithStatus(_logger, LogLevel.Information, $"Backing up {_gameServer.Name}...");
         try
         {
             bool needToRestartServer = false;
-            _logger.LogInformation("Backing up {ServerName}...", _gameServer.Name);
             // Stop process if running, unless BackupWithoutShutdown is true
             if (!_gameServer.BackupWithoutShutdown && await _processManager.IsProcessRunningAsync(_gameServer.ProcessName))
             {
                 needToRestartServer = true;
-                _logger.LogInformation("Process for {ServerName} is running. Stopping server.", _gameServer.Name);
+                Program.LogWithStatus(_logger, LogLevel.Information, $"Process for {_gameServer.Name} is running. Stopping server.");
                 await _processManager.StopProcessAsync(_gameServer.ProcessName);
             }
             // Backup
@@ -337,9 +333,8 @@ public class ServerUpdater : IAsyncDisposable
                 var backupResult = await _backupService.BackupAsync(_gameServer);
                 if (!backupResult)
                 {
-                    _logger.LogError("Backup failed for {ServerName}.", _gameServer.Name);
+                    Program.LogWithStatus(_logger, LogLevel.Error, $"Backup failed for {_gameServer.Name}");
                     NotificationManager?.NotifyError($"Backup failed for {_gameServer.Name}", $"Backup failed for {_gameServer.Name}.");
-                    Program.Log($"Backup failed for {_gameServer.Name}", true);
                     return false;
                 }
                 // Persist last backup date
@@ -350,19 +345,18 @@ public class ServerUpdater : IAsyncDisposable
             // Restart
             if (needToRestartServer)
             {
-                _logger.LogInformation("Restarting process for {ServerName}", _gameServer.Name);
+                Program.LogWithStatus(_logger, LogLevel.Information, $"Restarting process for {_gameServer.Name}");
                 await _processManager.StartProcessAsync(_gameServer);
-                _logger.LogInformation("Waiting 30 seconds for {ServerName} to start.", _gameServer.Name);
+                Program.LogWithStatus(_logger, LogLevel.Information, $"Waiting 30 seconds for {_gameServer.Name} to start.");
                 await Task.Delay(TimeSpan.FromSeconds(30));
             }
-            Program.AddRecentAction($"Backup completed for {_gameServer.Name}");
+            Program.LogWithStatus(_logger, LogLevel.Information, $"Backup completed for {_gameServer.Name}");
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Exception occurred while backing up {ServerName}", _gameServer.Name);
+            Program.LogWithStatus(_logger, LogLevel.Error, $"Backup error for {_gameServer.Name}: {ex.Message}");
             NotificationManager?.NotifyError($"Exception backing up {_gameServer.Name}", ex.ToString());
-            Program.Log($"Backup error for {_gameServer.Name}: {ex.Message}", true);
             return false;
         }
         finally
