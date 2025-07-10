@@ -136,44 +136,66 @@ namespace GameServerManager
             if (UpdateInProgress)
                 return false;
             var now = DateTime.Now;
-            // Try CRON
+            bool cronValid = false;
+            bool legacyValid = false;
+            bool shouldRun = false;
+
+            // Try CRON parse only
+            NCrontab.CrontabSchedule? cron = null;
             try
             {
-                var cron = CrontabSchedule.Parse(schedule);
-                // Find the most recent scheduled time before now
-                var prev = cron.GetNextOccurrence(lastRun.AddSeconds(-1));
+                cron = NCrontab.CrontabSchedule.Parse(schedule);
+                cronValid = true;
+            }
+            catch
+            {
+                cronValid = false;
+            }
+            // If CRON is valid, do the scheduling logic (outside try/catch)
+            if (cronValid && cron != null)
+            {
+                // Prevent DateTime.MinValue subtraction
+                DateTime safeLastRun = lastRun == DateTime.MinValue ? now : lastRun;
+                DateTime prev;
+                try
+                {
+                    prev = cron.GetNextOccurrence(safeLastRun.AddSeconds(-1));
+                }
+                catch
+                {
+                    prev = cron.GetNextOccurrence(now.AddSeconds(-60));
+                }
                 if (prev > now) prev = cron.GetNextOccurrence(now.AddSeconds(-60)); // fallback
-                // If lastRun < prev and now >= prev, it's time to run
                 if (lastRun < prev && now >= prev)
                 {
                     lastRun = prev;
                     _logger.LogInformation($"CRON {type} time reached for {{ServerName}}.", _gameServer.Name);
-                    return true;
+                    shouldRun = true;
                 }
             }
-            catch
+
+            // Try legacy time
+            if (DateTime.TryParseExact(schedule, new[] { "HH:mm", "hh:mm tt", "H:mm", "h:mm tt" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out var scheduledTime))
             {
-                // Not a valid CRON, try time format
-                if (DateTime.TryParseExact(schedule, new[] { "HH:mm", "hh:mm tt", "H:mm", "h:mm tt" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out var scheduledTime))
+                legacyValid = true;
+                var scheduledToday = new DateTime(now.Year, now.Month, now.Day, scheduledTime.Hour, scheduledTime.Minute, 0);
+                var scheduledPrev = scheduledToday;
+                if (now < scheduledToday)
+                    scheduledPrev = scheduledToday.AddDays(-1);
+                if (lastRun < scheduledPrev && now >= scheduledPrev)
                 {
-                    var scheduledToday = new DateTime(now.Year, now.Month, now.Day, scheduledTime.Hour, scheduledTime.Minute, 0);
-                    var scheduledPrev = scheduledToday;
-                    if (now < scheduledToday)
-                        scheduledPrev = scheduledToday.AddDays(-1);
-                    // If lastRun < scheduledPrev and now >= scheduledPrev, it's time to run
-                    if (lastRun < scheduledPrev && now >= scheduledPrev)
-                    {
-                        lastRun = scheduledPrev;
-                        _logger.LogInformation($"Legacy {type} time reached for {{ServerName}}.", _gameServer.Name);
-                        return true;
-                    }
-                }
-                else
-                {
-                    _logger.LogWarning($"Invalid {type} time format for {{ServerName}}: {{Schedule}}", _gameServer.Name, schedule);
+                    lastRun = scheduledPrev;
+                    _logger.LogInformation($"Legacy {type} time reached for {{ServerName}}.", _gameServer.Name);
+                    shouldRun = true;
                 }
             }
-            return false;
+
+            // Only log a warning if neither CRON nor legacy time format is valid
+            if (!cronValid && !legacyValid && !string.IsNullOrWhiteSpace(schedule))
+            {
+                _logger.LogWarning($"Invalid {type} time format for {{ServerName}}: {{Schedule}}", _gameServer.Name, schedule);
+            }
+            return shouldRun;
         }
 
         public async Task<bool> UpdateServerAsync()

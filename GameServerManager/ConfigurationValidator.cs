@@ -44,16 +44,16 @@ namespace GameServerManager
             // Validate update/backup time formats
             if (!string.IsNullOrWhiteSpace(gameServer.AutoUpdateTime))
             {
-                bool valid = true;
-                try { NCrontab.CrontabSchedule.Parse(gameServer.AutoUpdateTime); }
+                bool valid = false;
+                try { NCrontab.CrontabSchedule.Parse(gameServer.AutoUpdateTime); valid = true; }
                 catch { valid = DateTime.TryParseExact(gameServer.AutoUpdateTime, new[] { "HH:mm", "hh:mm tt", "H:mm", "h:mm tt" }, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _); }
                 if (!valid)
                     errors.Add($"Invalid AutoUpdateTime for {gameServer.Name}: {gameServer.AutoUpdateTime}");
             }
             if (!string.IsNullOrWhiteSpace(gameServer.AutoBackupTime))
             {
-                bool valid = true;
-                try { NCrontab.CrontabSchedule.Parse(gameServer.AutoBackupTime); }
+                bool valid = false;
+                try { NCrontab.CrontabSchedule.Parse(gameServer.AutoBackupTime); valid = true; }
                 catch { valid = DateTime.TryParseExact(gameServer.AutoBackupTime, new[] { "HH:mm", "hh:mm tt", "H:mm", "h:mm tt" }, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _); }
                 if (!valid)
                     errors.Add($"Invalid AutoBackupTime for {gameServer.Name}: {gameServer.AutoBackupTime}");
