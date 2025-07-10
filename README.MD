@@ -82,7 +82,7 @@ Below is an example configuration for the game **Icarus**:
 
 ## CLI Configuration
 You can configure the application using the CLI instead of manually editing the `appsettings.json` file. Run the application with the `config` argument:
-GameServerManager config
+`GameServerManager config`
 Follow the prompts to set up your configuration interactively.
 
 ---
