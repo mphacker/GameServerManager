@@ -8,7 +8,7 @@ Game Server Manager is a Windows command-line utility designed to help manage St
 - **Auto Update**: Automatically shuts down the server, checks for updates via Steam, and restarts the server after updates are applied.
 - **Notifications**: Supports email notifications for errors and important events.
 
-Game Server Manager supports managing multiple Steam servers simultaneously. Configuration is handled via the `appsettings.json` file or through a CLI configuration utility.
+Game Server Manager supports managing multiple Steam servers simultaneously. Configuration is handled via the appsettings.json file or through a CLI configuration utility.
 
 ---
 
@@ -81,14 +81,14 @@ Below is an example configuration for the game **Icarus**:
 ---
 
 ## CLI Configuration
-You can configure the application using the CLI instead of manually editing the `appsettings.json` file. Run the application with the `config` argument:
+You can configure the application using the CLI instead of manually editing the appsettings.json file. Run the application with the `config` argument:
 `GameServerManager config`
 Follow the prompts to set up your configuration interactively.
 
 ---
 
 ## Running the Application
-Once the `appsettings.json` file is configured (manually or via CLI), start the application by running:
+Once the appsettings.json file is configured (manually or via CLI), start the application by running:
 `GameServerManager.exe`
 The watchdog process will begin monitoring the servers. Auto updates and backups will occur as scheduled.
 
@@ -97,7 +97,7 @@ The watchdog process will begin monitoring the servers. Auto updates and backups
 ## Logging and Troubleshooting
 The application generates daily log files in the format `GameServerManager_yyyy-MM-dd.log`. Logs include details of all actions performed by the application. Log files are automatically deleted after 10 days.
 
-If you encounter issues, check the logs for errors related to configuration (e.g., incorrect `SteamAppId`, `ProcessName`, or file paths).
+If you encounter issues, check the logs for errors related to configuration (e.g., incorrect SteamAppId, ProcessName, or file paths).
 
 ---
 
