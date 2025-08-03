@@ -20,4 +20,5 @@ public class GameServer
 
     public DateTime? LastUpdateDate { get; set; }
     public DateTime? LastBackupDate { get; set; }
+    public bool Enabled { get; set; } = true;
 }

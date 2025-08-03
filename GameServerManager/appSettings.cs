@@ -34,6 +34,7 @@ public class GameServer
     public bool BackupWithoutShutdown { get; set; } = false;
     public DateTime? LastUpdateDate { get; set; }
     public DateTime? LastBackupDate { get; set; }
+    public bool Enabled { get; set; } = true;
 }
 
 /// <summary>

@@ -178,6 +178,11 @@ internal class Program
         if (appSettings.GameServers!=null)
             foreach (var gameServer in appSettings.GameServers)
             {
+                if (!gameServer.Enabled)
+                {
+                    logger.LogInformation($"Skipping disabled server: {gameServer.Name}");
+                    continue;
+                }
                 if (gameServer.AutoRestart)
                 {
                     var watchdogLogger = serviceProvider.GetRequiredService<ILogger<Watchdog>>();
@@ -263,7 +268,9 @@ internal class Program
             Console.ResetColor();
             line++;
             string separator = new string('-', Math.Max(40, Math.Min(Console.WindowWidth - 1, 80)));
-            foreach (var server in _gameServers)
+            // Only show enabled servers
+            var enabledServers = _gameServers.Where(s => s.Enabled).ToList();
+            foreach (var server in enabledServers)
             {
                 // Separator
                 Console.SetCursorPosition(0, line++);
@@ -334,7 +341,7 @@ internal class Program
                 Console.ResetColor();
             }
             // Final separator if any servers
-            if (_gameServers.Count > 0)
+            if (enabledServers.Count > 0)
             {
                 Console.SetCursorPosition(0, line++);
                 Console.ForegroundColor = ConsoleColor.DarkGray;
