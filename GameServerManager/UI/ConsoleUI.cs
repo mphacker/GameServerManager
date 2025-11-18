@@ -13,7 +13,6 @@ public class ConsoleUI : IAsyncDisposable
     private readonly ConcurrentQueue<string> _errorQueue = new();
     private List<GameServer> _gameServers = new();
     private CancellationTokenSource? _cancellationTokenSource;
-    private Task? _renderTask;
 
     /// <summary>
     /// Adds a recent action to the activity log (keeps last 10).

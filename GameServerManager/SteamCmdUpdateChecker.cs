@@ -173,6 +173,12 @@ namespace GameServerManager
                 _logger.LogDebug($"[SteamCMD] Process completed (ExitCode: {process.ExitCode})");
                 _logger.LogDebug($"[SteamCMD] Output length: {output?.Length ?? 0} chars");
 
+                if (string.IsNullOrWhiteSpace(output))
+                {
+                    _logger.LogWarning("[SteamCMD] Output was null or empty");
+                    return null;
+                }
+
                 return ParseBuildIdFromOutput(output, appId);
             }
             catch (Exception ex)
