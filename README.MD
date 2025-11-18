@@ -183,7 +183,7 @@ Displays command-line help and usage information.
 ## Running the Application
 
 ### First Time Setup
-1. **Install .NET 9.0** runtime if not already installed
+1. **Install .NET 10.0** runtime if not already installed
 2. **Download and install SteamCMD** from [https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip](https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip)
 3. **Run the configuration CLI**: `GameServerManager config`
 4. **Set your SteamCMD path** (e.g., `D:\steamcmd\steamcmd.exe`)
