@@ -123,6 +123,12 @@ public class ServerUpdater : IAsyncDisposable
     /// </summary>
     private async Task PeriodicCheckAsync()
     {
+        // Update the next check time on the GameServer object for UI display
+        if (_updateChecker != null)
+        {
+            _gameServer.NextUpdateCheck = _updateChecker.NextCheckTime;
+        }
+
         // Perform startup check immediately (first run only)
         if (!_hasPerformedStartupCheck && _updateChecker != null && !UpdateInProgress && !IsCheckingForUpdate)
         {
@@ -195,11 +201,14 @@ public class ServerUpdater : IAsyncDisposable
             if (!result.Success)
             {
                 _logger.LogWarning($"Update check failed for {_gameServer.Name}: {result.ErrorMessage}");
+                // Update next check time even on failure
+                _gameServer.NextUpdateCheck = _updateChecker.NextCheckTime;
                 return;
             }
 
-            // Update last check time
+            // Update last check time and next check time
             _gameServer.LastUpdateCheck = DateTime.Now;
+            _gameServer.NextUpdateCheck = _updateChecker.NextCheckTime;
             AppSettingsHelper.UpdateServerLastCheck(_gameServer.Name, DateTime.Now);
 
             // If we don't have a local build ID yet, this check result becomes our baseline
@@ -230,6 +239,11 @@ public class ServerUpdater : IAsyncDisposable
         catch (Exception ex)
         {
             _logger.LogError($"Error checking for updates for {_gameServer.Name}: {ex.Message}");
+            // Update next check time even on exception
+            if (_updateChecker != null)
+            {
+                _gameServer.NextUpdateCheck = _updateChecker.NextCheckTime;
+            }
         }
         finally
         {

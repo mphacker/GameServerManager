@@ -323,34 +323,91 @@ public class ConsoleUI : IAsyncDisposable
             return "[dim]disabled[/]";
         }
 
-        // Try to get LastUpdateCheck from the server
-        if (server.LastUpdateCheck.HasValue)
+        // Build status string with last check and next check
+        var statusParts = new List<string>();
+
+        // Calculate time since last check and time until next check
+        DateTime? lastCheck = server.LastUpdateCheck;
+        DateTime? nextCheck = server.NextUpdateCheck;
+        DateTime now = DateTime.Now;
+
+        // Part 1: Time since last check
+        if (lastCheck.HasValue)
         {
-            var timeSinceCheck = DateTime.Now - server.LastUpdateCheck.Value;
+            var timeSinceCheck = now - lastCheck.Value;
             
-            // Show actual time elapsed, not "checking..." after check completes
             if (timeSinceCheck.TotalMinutes < 60)
             {
-                return $"[cyan]{(int)timeSinceCheck.TotalMinutes}m ago[/]";
+                statusParts.Add($"[cyan]{(int)timeSinceCheck.TotalMinutes}m ago[/]");
             }
             else if (timeSinceCheck.TotalHours < 24)
             {
-                return $"[yellow]{(int)timeSinceCheck.TotalHours}h ago[/]";
+                statusParts.Add($"[yellow]{(int)timeSinceCheck.TotalHours}h ago[/]");
             }
             else
             {
-                return $"[red]{(int)timeSinceCheck.TotalDays}d ago[/]";
+                statusParts.Add($"[red]{(int)timeSinceCheck.TotalDays}d ago[/]");
+            }
+
+            // Part 2: Next check time (show remaining time)
+            if (nextCheck.HasValue)
+            {
+                var timeUntilCheck = nextCheck.Value - now;
+                
+                if (timeUntilCheck.TotalMinutes <= 0)
+                {
+                    // Check is due or overdue
+                    statusParts.Add("[dim](checking...)[/]");
+                }
+                else if (timeUntilCheck.TotalMinutes < 60)
+                {
+                    // Show remaining minutes in a way that makes the interval clear
+                    int remainingMinutes = (int)Math.Ceiling(timeUntilCheck.TotalMinutes);
+                    statusParts.Add($"[dim](in {remainingMinutes}m)[/]");
+                }
+                else if (timeUntilCheck.TotalHours < 24)
+                {
+                    int remainingHours = (int)Math.Ceiling(timeUntilCheck.TotalHours);
+                    statusParts.Add($"[dim](in {remainingHours}h)[/]");
+                }
+                else
+                {
+                    statusParts.Add($"[dim]({nextCheck.Value:MM-dd HH:mm})[/]");
+                }
             }
         }
-        
-        // No LastUpdateCheck yet - either first startup or check failed
-        // If we have a build ID, we're probably just waiting for the first check
-        if (server.CurrentBuildId.HasValue)
+        else
         {
-            return "[dim]pending...[/]";
+            // No LastUpdateCheck yet
+            if (nextCheck.HasValue)
+            {
+                var timeUntilCheck = nextCheck.Value - now;
+                
+                if (timeUntilCheck.TotalMinutes <= 0)
+                {
+                    statusParts.Add("[dim]checking...[/]");
+                }
+                else if (timeUntilCheck.TotalMinutes < 60)
+                {
+                    int remainingMinutes = (int)Math.Ceiling(timeUntilCheck.TotalMinutes);
+                    statusParts.Add($"[dim]pending (in {remainingMinutes}m)[/]");
+                }
+                else
+                {
+                    statusParts.Add("[dim]pending...[/]");
+                }
+            }
+            else if (server.CurrentBuildId.HasValue)
+            {
+                statusParts.Add("[dim]pending...[/]");
+            }
+            else
+            {
+                statusParts.Add("[dim]pending[/]");
+            }
         }
-        
-        return "[dim]pending[/]";
+
+        return string.Join(" ", statusParts);
     }
 
     public async ValueTask DisposeAsync()

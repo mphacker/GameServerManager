@@ -28,6 +28,7 @@ public class GameServer
     public bool AutoUpdate { get; set; } = false;
     public int? CurrentBuildId { get; set; } // Track current build ID for update detection
     public DateTime? LastUpdateCheck { get; set; } // Last time we checked for updates
+    public DateTime? NextUpdateCheck { get; set; } // Next scheduled update check time
     public bool AutoBackup { get; set; } = false;
     public string AutoBackupTime { get; set; } = "05:30 AM";
     public string AutoBackupSource { get; set; } = string.Empty;
