@@ -20,6 +20,24 @@ public class ConsoleUI : IAsyncDisposable
     /// </summary>
     public void AddRecentAction(string action)
     {
+        // Escape square brackets that aren't Spectre.Console markup
+        // Replace [Check], [OK], [Error], etc. with escaped versions
+        action = action
+            .Replace("[Check]", "[[Check]]")
+            .Replace("[OK]", "[[OK]]")
+            .Replace("[Error]", "[[Error]]")
+            .Replace("[Startup]", "[[Startup]]")
+            .Replace("[UPDATE]", "[[UPDATE]]")
+            .Replace("[Updating]", "[[Updating]]")
+            .Replace("[Backup]", "[[Backup]]")
+            .Replace("[Stop]", "[[Stop]]")
+            .Replace("[Warn]", "[[Warn]]")
+            .Replace("[Start]", "[[Start]]")
+            .Replace("[Wait]", "[[Wait]]")
+            .Replace("[Download]", "[[Download]]")
+            .Replace("[Update]", "[[Update]]")
+            .Replace("[Kill]", "[[Kill]]");
+        
         var entry = $"[dim]{DateTime.Now:yyyy-MM-dd HH:mm:ss}[/] {action}";
         _recentActions.Enqueue(entry);
         while (_recentActions.Count > 10)
@@ -147,9 +165,9 @@ public class ConsoleUI : IAsyncDisposable
             .BorderColor(Color.Grey);
 
         table.AddColumn(new TableColumn("[bold]Server[/]").Centered());
-        table.AddColumn(new TableColumn("[bold]Process[/]"));
+        table.AddColumn(new TableColumn("[bold]Build ID[/]").Centered());
+        table.AddColumn(new TableColumn("[bold]Update Check[/]").Centered());
         table.AddColumn(new TableColumn("[bold]Last Update[/]").Centered());
-        table.AddColumn(new TableColumn("[bold]Next Update[/]").Centered());
         table.AddColumn(new TableColumn("[bold]Last Backup[/]").Centered());
         table.AddColumn(new TableColumn("[bold]Next Backup[/]").Centered());
         table.AddColumn(new TableColumn("[bold]Flags[/]").Centered());
@@ -157,10 +175,14 @@ public class ConsoleUI : IAsyncDisposable
         foreach (var server in enabledServers)
         {
             var serverName = $"[green bold]{server.Name}[/]";
-            var processName = $"[dim]{server.ProcessName}[/]";
+            
+            // Build ID display - only for Steam games
+            var buildId = GetBuildIdDisplay(server);
+            
+            // Update check status
+            var updateCheckStatus = GetUpdateCheckStatus(server);
             
             var lastUpdate = server.LastUpdateDate?.ToString("MM-dd HH:mm") ?? "[dim]none[/]";
-            var nextUpdate = GetNextScheduledTime(server.AutoUpdate, server.AutoUpdateTime);
             
             var lastBackup = server.LastBackupDate?.ToString("MM-dd HH:mm") ?? "[dim]none[/]";
             var nextBackup = GetNextScheduledTime(server.AutoBackup, server.AutoBackupTime);
@@ -169,9 +191,9 @@ public class ConsoleUI : IAsyncDisposable
 
             table.AddRow(
                 serverName,
-                processName,
+                buildId,
+                updateCheckStatus,
                 lastUpdate,
-                nextUpdate,
                 lastBackup,
                 nextBackup,
                 flags
@@ -182,6 +204,30 @@ public class ConsoleUI : IAsyncDisposable
             .Header("[bold blue]Active Servers[/]")
             .Border(BoxBorder.Rounded)
             .BorderColor(Color.Blue);
+    }
+
+    private string GetBuildIdDisplay(GameServer server)
+    {
+        // Non-Steam apps don't have build IDs
+        if (string.IsNullOrWhiteSpace(server.SteamAppId))
+        {
+            return "[dim]N/A[/]";
+        }
+        
+        // Steam games with discovered build ID
+        if (server.CurrentBuildId.HasValue)
+        {
+            return $"[cyan]{server.CurrentBuildId}[/]";
+        }
+        
+        // Steam games with AutoUpdate enabled but build ID not yet discovered
+        if (server.AutoUpdate)
+        {
+            return "[dim]discovering...[/]";
+        }
+        
+        // Steam games with AutoUpdate disabled
+        return "[dim]unknown[/]";
     }
 
     private string BuildFlags(GameServer server)
@@ -268,6 +314,44 @@ public class ConsoleUI : IAsyncDisposable
         }
 
         return "[red]invalid[/]";
+    }
+
+    private string GetUpdateCheckStatus(GameServer server)
+    {
+        // Non-Steam apps or AutoUpdate disabled
+        if (!server.AutoUpdate || string.IsNullOrWhiteSpace(server.SteamAppId))
+        {
+            return "[dim]disabled[/]";
+        }
+
+        // Try to get LastUpdateCheck from the server
+        if (server.LastUpdateCheck.HasValue)
+        {
+            var timeSinceCheck = DateTime.Now - server.LastUpdateCheck.Value;
+            
+            // Show actual time elapsed, not "checking..." after check completes
+            if (timeSinceCheck.TotalMinutes < 60)
+            {
+                return $"[cyan]{(int)timeSinceCheck.TotalMinutes}m ago[/]";
+            }
+            else if (timeSinceCheck.TotalHours < 24)
+            {
+                return $"[yellow]{(int)timeSinceCheck.TotalHours}h ago[/]";
+            }
+            else
+            {
+                return $"[red]{(int)timeSinceCheck.TotalDays}d ago[/]";
+            }
+        }
+        
+        // No LastUpdateCheck yet - either first startup or check failed
+        // If we have a build ID, we're probably just waiting for the first check
+        if (server.CurrentBuildId.HasValue)
+        {
+            return "[dim]pending...[/]";
+        }
+        
+        return "[dim]pending[/]";
     }
 
     public async ValueTask DisposeAsync()

@@ -1,72 +1,59 @@
 # Game Server Manager
 
-## Overview
-Game Server Manager is a Windows command-line utility designed to help manage Steam-based game servers **and non-Steam applications/programs**. It provides features to ensure servers are running, backed up, and updated automatically. Key features include:
+A Windows command-line utility for managing Steam-based game servers and non-Steam applications with automatic monitoring, updates, and backups.
 
-- **Watchdog**: Ensures the game server or application is running. If it crashes or stops, it will be restarted automatically.
-- **Auto Backup**: Creates ZIP backups of your server's save files and stores them in a specified location. You can configure the number of backups to retain.
-- **Auto Update**: Automatically shuts down the server, checks for updates via Steam, and restarts the server after updates are applied (Steam games only).
-- **Rich Console UI**: Modern, interactive console interface powered by Spectre.Console with live status updates.
-- **Notifications**: Supports email notifications for errors and important events.
-- **Non-Steam Support**: Monitor and manage any Windows application or server, not just Steam games.
+## Key Features
 
-Game Server Manager supports managing multiple servers and applications simultaneously. Configuration is handled via the `appsettings.json` file or through an interactive CLI configuration utility.
+- **Watchdog** - Automatically restarts crashed or stopped servers
+- **Auto Update** - Continuous background update detection for Steam games (SteamCMD-based)
+- **Auto Backup** - Scheduled backups with configurable retention
+- **Rich Console UI** - Live-updating dashboard powered by Spectre.Console
+- **Notifications** - Email alerts for errors and important events
+- **Multi-Server Support** - Manage multiple servers simultaneously
+- **Non-Steam Support** - Monitor and restart any Windows application
 
 ---
 
-## User Interface
+## Quick Start
 
-### Live Status Dashboard
-When you run the application normally, you'll see a beautiful live dashboard with:
-- **Real-time server status** - View all enabled servers at a glance
-- **Next scheduled events** - See when updates and backups will occur
-- **Recent activity log** - Track the last 10 actions performed
-- **Error alerts** - Highlighted error messages when issues occur
-- **Auto-refresh** - Updates every 2 seconds automatically
+### Prerequisites
+- **.NET 10.0 Runtime** - [Download here](https://dotnet.microsoft.com/download/dotnet/10.0)
+- **SteamCMD** - Required for Steam updates - [Download here](https://developer.valvesoftware.com/wiki/SteamCMD)
+- **Windows OS** - Currently Windows-only
 
-The dashboard uses a modern table-based layout with color-coded information:
-- ?? Green: Active/Enabled features
-- ?? Yellow: Warnings or scheduled events
-- ?? Red: Errors
-- ?? Blue: Backup operations
-
-### Interactive Configuration CLI
-Run the configuration utility with:
-```
-GameServerManager config
-```
-
-Features of the configuration CLI:
-- **Interactive prompts** - No need to manually edit JSON files
-- **Input validation** - Ensures all values are correct before saving
-- **Visual menus** - Easy-to-navigate selection menus
-- **Test notifications** - Send test emails to verify your SMTP settings
-- **Safe editing** - Option to exit without saving changes
+### Setup
+1. Download and extract GameServerManager
+2. Install SteamCMD (e.g., `D:\steamcmd\`)
+3. Run interactive configuration: `GameServerManager config`
+4. Add your servers and save
+5. Start the manager: `GameServerManager`
 
 ---
 
 ## Configuration
 
-### Example Configuration for Steam Game (`appsettings.json`)
-Below is an example configuration for the game **Icarus**:
+Edit `appsettings.json` or use the interactive CLI (`GameServerManager config`).
+
+### Example Configuration
+
 ```json
 {
   "SteamCMDPath": "D:\\steamcmd\\steamcmd.exe",
+  "UpdateCheckIntervalMinutes": 30,
   "GameServers": [
     {
-      "Name": "Icarus",
-      "ProcessName": "IcarusServer-Win64-Shipping",
-      "GamePath": "D:\\icarus",
-      "ServerExe": "IcarusServer.exe",
-      "ServerArgs": "-log -SteamServerName=\"Trez's Icarus Server\" -ResumeProspect",
-      "SteamAppId": "2089300",
+      "Name": "Enshrouded",
+      "ProcessName": "enshrouded_server",
+      "GamePath": "D:\\SteamLibrary\\steamapps\\common\\EnshroudedServer",
+      "ServerExe": "enshrouded_server.exe",
+      "ServerArgs": "",
+      "SteamAppId": "2278520",
       "AutoRestart": true,
       "AutoUpdate": true,
-      "AutoUpdateTime": "05:30 AM", // Legacy format example
       "AutoBackup": true,
-      "AutoBackupTime": "0 5 * * *", // CRON format example (daily at 5:00 AM)
-      "AutoBackupSource": "D:\\icarus\\Icarus\\Saved",
-      "AutoBackupDest": "E:\\GameBackups\\Icarus\\",
+      "AutoBackupTime": "06:00 AM",
+      "AutoBackupSource": "D:\\SteamLibrary\\steamapps\\common\\EnshroudedServer\\savegame",
+      "AutoBackupDest": "E:\\GameBackups\\Enshrouded\\",
       "AutoBackupsToKeep": 30,
       "BackupWithoutShutdown": false,
       "Enabled": true
@@ -77,196 +64,162 @@ Below is an example configuration for the game **Icarus**:
     "SmtpPort": 587,
     "SmtpUser": "your-email@example.com",
     "SmtpPass": "your-password",
-    "Recipient": "contact-person@email.com",
+    "Recipient": "admin@example.com",
     "EnableEmail": true
   }
 }
 ```
 
-### Example Configuration for Non-Steam Application
-Below is an example for monitoring a non-Steam application or custom server:
-```json
-{
-  "SteamCMDPath": "D:\\steamcmd\\steamcmd.exe",
-  "GameServers": [
-    {
-      "Name": "ArchobotLLM",
-      "ProcessName": "ArchobotLLMServerV3",
-      "GamePath": "D:\\ArchobotLLMV3",
-      "ServerExe": "ArchobotLLMServerV3.exe",
-      "ServerArgs": "",
-      "SteamAppId": "",
-      "AutoRestart": true,
-      "AutoUpdate": false,
-      "AutoUpdateTime": "",
-      "AutoBackup": false,
-      "AutoBackupTime": "",
-      "AutoBackupSource": "",
-      "AutoBackupDest": "",
-      "AutoBackupsToKeep": 30,
-      "BackupWithoutShutdown": false,
-      "LastUpdateDate": "",
-      "LastBackupDate": "",
-      "Enabled": true
-    }
-  ]
-}
-```
+### Key Settings
 
-**Notes for Non-Steam Applications:**
-- Set `SteamAppId` to an empty string (`""`)
-- Set `AutoUpdate` to `false` (Steam updates won't work for non-Steam apps)
-- `SteamCMDPath` is only required if you have at least one Steam-based server with `AutoUpdate` enabled
-- You can still use `AutoRestart` for watchdog functionality
-- You can still use `AutoBackup` if the application generates save files
+**Global:**
+- `SteamCMDPath` - Path to steamcmd.exe (required for Steam games)
+- `UpdateCheckIntervalMinutes` - Check frequency (default: 30, min: 15)
 
-### Configuration Parameters
-- **SteamCMDPath**: Full path to the SteamCMD executable (e.g., `steamcmd.exe`). Only required if at least one enabled server has `AutoUpdate` set to `true`.
-- **GameServers**: An array of game server configurations.
-  - **Name**: A descriptive name for the server (used for identification only).
-  - **ProcessName**: The name of the server's process as it appears in Task Manager (required for watchdog functionality).
-  - **GamePath**: Path to the game server installation directory.
-  - **ServerExe**: Filename of the game server executable.
-  - **ServerArgs**: Optional command-line arguments for launching the server.
-  - **SteamAppId**: Steam application ID for the game server. Leave empty (`""`) for non-Steam applications.
-  - **Enabled**: `true`/`false` - Whether this server configuration is active.
-  - **AutoRestart**: `true`/`false` - Automatically restart the server if it crashes or stops unexpectedly.
-  - **AutoUpdate**: `true`/`false` - Enable automatic updates via Steam. Set to `false` for non-Steam applications.
-  - **AutoUpdateTime**: Time for scheduled updates. Supports both legacy and CRON formats:
-    - Legacy: `"HH:mm"`, `"hh:mm tt"` (e.g., `"05:30 AM"`, `"17:30"`)
-    - CRON: Standard CRON expression (e.g., `"0 5 * * *"` for daily at 5:00 AM)
-  - **AutoBackup**: `true`/`false` - Enable automatic backups of server save files.
-  - **AutoBackupSource**: Path to the folder containing save files.
-  - **AutoBackupDest**: Path to store the zipped backups.
-  - **AutoBackupTime**: Time for scheduled backups. Supports both legacy and CRON formats (see above).
-  - **AutoBackupsToKeep**: Number of most recent backup files to retain. Older backups will be deleted.
-  - **BackupWithoutShutdown**: `true`/`false` - If `true`, backups will be performed without shutting down the dedicated server. If `false`, the server will be stopped before backup and restarted after.
-  - **LastUpdateDate**: (Auto-managed) Last time the server was updated.
-  - **LastBackupDate**: (Auto-managed) Last time the server was backed up.
+**Per Server:**
+- `Name` - Server display name
+- `ProcessName` - Process name in Task Manager (without .exe)
+- `GamePath` - Installation directory
+- `ServerExe` - Executable filename
+- `SteamAppId` - Steam App ID (empty for non-Steam apps)
+- `AutoRestart` - Restart if crashed (default: false)
+- `AutoUpdate` - Enable automatic updates (default: false)
+- `AutoBackup` - Enable scheduled backups (default: false)
+- `AutoBackupTime` - Schedule as `"HH:mm"` or CRON (e.g., `"0 5 * * *"`)
+- `BackupWithoutShutdown` - Backup while running (default: false)
+- `Enabled` - Enable/disable this server (default: true)
 
-- **Notification**: (Optional) Notification settings for email notifications.
-  - **SmtpHost**: SMTP server hostname (e.g., `smtp.office365.com` for Office 365).
-  - **SmtpPort**: SMTP server port (e.g., 587 for TLS).
-  - **SmtpUser**: SMTP username (your email address).
-  - **SmtpPass**: SMTP password or app-specific password.
-  - **Recipient**: Email address to receive notifications.
-  - **EnableEmail**: `true`/`false` - Enable email notifications.
+**Auto-managed fields** (don't edit manually):
+- `CurrentBuildId`, `LastUpdateCheck`, `LastUpdateDate`, `LastBackupDate`
 
 ---
 
-## CLI Commands
+## How It Works
 
-### Start the Server Manager (Live Dashboard)
-```
-GameServerManager
-```
-Starts the application with the live status dashboard. Press **CTRL+C** to exit gracefully.
+### Auto Update
+1. **Startup Check** - Checks for updates 5 seconds after start
+2. **Periodic Checks** - Runs every X minutes (configured)
+3. **VDF Parsing** - Uses Valve Data Format parser to read SteamCMD output
+4. **Build ID Tracking** - Compares local vs. Steam build IDs
+5. **Smart Updates** - Only updates when new version is confirmed
 
-### Interactive Configuration
-```
-GameServerManager config
-```
-Launches the interactive configuration editor with menu-driven prompts.
+Updates are detected within 15-30 minutes of release. Checks run in the background without stopping your server.
 
-### Help
-```
-GameServerManager --help
-```
-or
-```
-GameServerManager /?
-```
-Displays command-line help and usage information.
+### Backup Scheduling
+- **Time Format**: `"05:30 AM"`, `"17:30"`
+- **CRON Format**: `"0 5 * * *"` (daily 5 AM), `"0 */6 * * *"` (every 6 hours)
+
+Backups are ZIP files with timestamps. Old backups are auto-deleted based on `AutoBackupsToKeep`.
 
 ---
 
-## Running the Application
+## Dashboard UI
 
-### First Time Setup
-1. **Install .NET 10.0** runtime if not already installed
-2. **Download and install SteamCMD** from [https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip](https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip)
-3. **Run the configuration CLI**: `GameServerManager config`
-4. **Set your SteamCMD path** (e.g., `D:\steamcmd\steamcmd.exe`)
-5. **Add your game servers** using the interactive prompts
-6. **Configure notifications** (optional but recommended)
-7. **Save and exit**
-
-### Normal Operation
-Once configured, start the application:
 ```
-GameServerManager
+??????????????????????????????????????????????????????????????
+? Game Server Manager | Press CTRL+C to exit                ?
+? Flags: R=Restart U=Update B=Backup                        ?
+??????????????????????????????????????????????????????????????
+? Server      ? Build ID ? Update Check ? Last Update ? ... ?
+?????????????????????????????????????????????????????????????
+? Enshrouded  ? 20801322 ? 12m ago      ? 11-18 06:00 ? RUB ?
+? CustomApp   ?   N/A    ?   disabled   ?    none     ?  R  ?
+??????????????????????????????????????????????????????????????
+
+Recent Activity:
+  2025-11-18 13:40:47 [OK] Enshrouded is up to date
+  2025-11-18 13:40:44 [Check] Checking for updates: Enshrouded
+  2025-11-18 13:33:36 [OK] Backup completed for Enshrouded
 ```
 
-The live dashboard will appear, showing:
-- All enabled servers
-- Last update/backup times
-- Next scheduled update/backup times
-- Real-time activity log
-- Any errors or warnings
-
-The watchdog will continuously monitor your servers, and auto updates/backups will occur as scheduled.
+Auto-refreshes every 2 seconds showing:
+- Server status, build IDs, check times
+- Last 10 activities
+- Error alerts
 
 ---
 
-## Logging and Troubleshooting
-The application generates daily log files in the format `GameServerManager_yyyy-MM-dd.log` in the application directory. Logs include:
-- Server start/stop events
-- Update operations
-- Backup operations
-- Errors and warnings
-- Configuration validation messages
+## Commands
 
-Log files are automatically deleted after 10 days to save disk space.
-
-### Common Issues
-- **Server not restarting**: Check that `ProcessName` matches exactly what appears in Task Manager
-- **Updates failing**: Verify `SteamAppId` is correct and `SteamCMDPath` points to a valid `steamcmd.exe`
-- **Backups failing**: Ensure `AutoBackupSource` and `AutoBackupDest` paths exist and are accessible
-- **Email notifications not working**: Use the "Send Test Notification" option in the config CLI to verify SMTP settings
-- **Server starts but crashes immediately**: The server process is started with its `GamePath` as the working directory, so it should find config files and dependencies correctly
+| Command | Description |
+|---------|-------------|
+| `GameServerManager` | Start dashboard |
+| `GameServerManager config` | Interactive configuration |
+| `GameServerManager --help` | Show help |
 
 ---
 
-## Requirements
-- **.NET 9.0 Runtime**: [Download here](https://dotnet.microsoft.com/download/dotnet/9.0)
-- **SteamCMD**: Required only for Steam-based server updates ([Download here](https://developer.valvesoftware.com/wiki/SteamCMD))
-- **Windows OS**: Currently designed for Windows environments
+## Troubleshooting
+
+**Server Not Restarting**
+- Verify `ProcessName` matches Task Manager exactly (without .exe)
+- Check logs for errors
+
+**Updates Not Working**
+- Verify `SteamAppId` is correct
+- Check `SteamCMDPath` points to valid steamcmd.exe
+- Ensure `AutoUpdate` is true
+- Review logs for errors
+
+**Backups Failing**
+- Verify source/destination paths exist
+- Check file permissions
+- Ensure sufficient disk space
+
+**Update Checks Not Running**
+- Check `UpdateCheckIntervalMinutes` is at least 15
+- Verify server is `Enabled: true`
+- Ensure `SteamAppId` is not empty for Steam games
 
 ---
 
-## Features Summary
-- ? **Watchdog**: Keeps servers running with automatic restart
-- ? **Auto Backup**: Scheduled backups with configurable retention
-- ? **Auto Update**: Scheduled updates via SteamCMD (Steam games only)
-- ? **Multi-Server Support**: Manage multiple servers simultaneously
-- ? **Non-Steam Support**: Monitor and restart any Windows application
-- ? **Rich Console UI**: Modern, live-updating dashboard with Spectre.Console
-- ? **Interactive Configuration**: User-friendly CLI configuration editor
-- ? **Flexible Scheduling**: Support for both time-of-day and CRON expressions
-- ? **Email Notifications**: Get notified of errors and important events
-- ? **Detailed Logging**: Comprehensive logs for troubleshooting
+## Advanced
+
+### Non-Steam Applications
+Set `SteamAppId` to empty string and `AutoUpdate` to false. Watchdog and backups work normally.
+
+### Multiple Servers
+Add multiple entries in `GameServers` array. Each operates independently.
+
+### Graceful Shutdown
+Press **CTRL+C** to exit. SteamCMD processes are terminated; game servers continue running.
 
 ---
 
-## Technical Details
+## Technical Stack
 
-### Architecture
-- Built with **.NET 9.0** and C# 13.0
-- Uses **Spectre.Console** for rich terminal UI
-- **Serilog** for structured logging
-- **NCrontab** for CRON expression parsing
-- **Dependency Injection** for service management
+- **.NET 10** / C# 13.0
+- **Spectre.Console** - Rich terminal UI
+- **Serilog** - Structured logging
+- **NCrontab** - CRON parsing
+- **ValveKeyValue** - VDF parsing for SteamCMD output
+- **SteamCMD** - Steam game updates
 
-### Performance
-- Efficient UI rendering with automatic diffing (no flicker)
-- Minimal CPU usage during monitoring
-- Thread-safe concurrent operations
-- Async/await throughout for responsive UI
+---
+
+## Logging
+
+Logs are written to `GameServerManager_yyyy-MM-dd.log` (retained for 10 days).
+
+Includes: server events, update checks, backups, errors, warnings.
+
+---
+
+## Email Notifications
+
+Configure SMTP in `Notification` section for alerts on:
+- Update failures
+- Backup failures
+- Server restart failures
+- Critical errors
+
+Test with: `GameServerManager config` ? "Send Test Notification"
 
 ---
 
 ## License
-This project is provided as-is for managing Steam dedicated servers. Feel free to modify and extend for your needs.
+
+Free to use and modify. Provided as-is.
 
 
 

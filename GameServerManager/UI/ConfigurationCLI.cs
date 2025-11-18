@@ -176,16 +176,6 @@ public class ConfigurationCLI
         gs.AutoRestart = AnsiConsole.Confirm("[green]Auto-Restart[/]?", gs.AutoRestart);
         gs.AutoUpdate = AnsiConsole.Confirm("[green]Auto-Update[/]?", gs.AutoUpdate);
         
-        if (gs.AutoUpdate)
-        {
-            gs.AutoUpdateTime = AnsiConsole.Prompt(
-                new TextPrompt<string>("Auto-Update [green]Schedule[/] (time or CRON):")
-                    .DefaultValue(gs.AutoUpdateTime)
-                    .Validate(schedule => IsValidTimeOrCron(schedule)
-                        ? ValidationResult.Success()
-                        : ValidationResult.Error("[red]Invalid time/CRON format[/]")));
-        }
-
         gs.AutoBackup = AnsiConsole.Confirm("[green]Auto-Backup[/]?", gs.AutoBackup);
         
         if (gs.AutoBackup)
@@ -306,7 +296,7 @@ public class ConfigurationCLI
                 $"[cyan]{s.SteamAppId}[/]",
                 s.Enabled ? "[green]Yes[/]" : "[red]No[/]",
                 s.AutoRestart ? "[green]Yes[/]" : "[grey]No[/]",
-                s.AutoUpdate ? $"[green]Yes[/] [dim]({s.AutoUpdateTime})[/]" : "[grey]No[/]",
+                s.AutoUpdate ? "[green]Yes[/]" : "[grey]No[/]",
                 s.AutoBackup ? $"[green]Yes[/] [dim]({s.AutoBackupTime})[/]" : "[grey]No[/]"
             );
         }

@@ -12,6 +12,7 @@ internal class Program
 {
     private static List<GameServer> _gameServers = new();
     private static ConsoleUI? _consoleUI;
+    private static List<IAsyncDisposable> _disposables = new(); // Track all disposables for cleanup
 
     /// <summary>
     /// Application entry point. Handles startup, configuration, DI, and CLI.
@@ -59,10 +60,15 @@ internal class Program
         
         // Set up cancellation for graceful shutdown
         var cts = new CancellationTokenSource();
-        Console.CancelKeyPress += (s, e) =>
+        Console.CancelKeyPress += async (s, e) =>
         {
             e.Cancel = true;
             _consoleUI?.StopDashboard();
+            
+            // Cleanup all disposables
+            LogWithStatus(logger, LogLevel.Information, "Shutting down gracefully...");
+            await CleanupAsync(logger);
+            
             cts.Cancel();
         };
 
@@ -70,12 +76,38 @@ internal class Program
 
         // Start the live dashboard
         await _consoleUI.StartDashboardAsync(_gameServers);
+        
+        // Cleanup on exit
+        await CleanupAsync(logger);
+    }
+
+    /// <summary>
+    /// Cleanup all disposable resources (updaters, watchdogs, etc.)
+    /// </summary>
+    private static async Task CleanupAsync(ILogger logger)
+    {
+        LogWithStatus(logger, LogLevel.Information, "Cleaning up resources...");
+        
+        foreach (var disposable in _disposables)
+        {
+            try
+            {
+                await disposable.DisposeAsync();
+            }
+            catch (Exception ex)
+            {
+                logger.LogError($"Error disposing resource: {ex.Message}");
+            }
+        }
+        
+        _disposables.Clear();
+        LogWithStatus(logger, LogLevel.Information, "Cleanup completed");
     }
 
     private static void ConfigureLogging()
     {
         var serilogLogger = new LoggerConfiguration()
-            .MinimumLevel.Information()
+            .MinimumLevel.Debug() // Changed from Information to Debug for more detailed logs
             .WriteTo.File(
                 path: Path.Combine(AppContext.BaseDirectory, "GameServerManager_.log"),
                 rollingInterval: RollingInterval.Day,
@@ -132,7 +164,7 @@ internal class Program
         serviceCollection.AddLogging(configure =>
         {
             configure.AddSerilog();
-            configure.SetMinimumLevel(LogLevel.Information);
+            configure.SetMinimumLevel(LogLevel.Debug); // Changed from Information to Debug
         });
         serviceCollection.AddSingleton<ILogger<ServerUpdater>, Logger<ServerUpdater>>();
         serviceCollection.AddSingleton<ILogger<Watchdog>, Logger<Watchdog>>();
@@ -349,8 +381,16 @@ internal class Program
 
     private static void StartWatchdogsAndUpdaters(Settings appSettings, ServiceProvider serviceProvider, NotificationManager notificationManager, ILogger logger)
     {
-        var watchdogs = new List<Watchdog>();
-        var updaters = new List<ServerUpdater>();
+        var updateCheckInterval = appSettings.UpdateCheckIntervalMinutes;
+        if (updateCheckInterval < 15)
+        {
+            LogWithStatus(logger, LogLevel.Warning, 
+                $"UpdateCheckIntervalMinutes ({updateCheckInterval}) is below minimum (15). Using 15 minutes.");
+            updateCheckInterval = 15;
+        }
+        
+        LogWithStatus(logger, LogLevel.Information, 
+            $"Update check interval: {updateCheckInterval} minutes");
         
         if (appSettings.GameServers != null)
             foreach (var gameServer in appSettings.GameServers)
@@ -365,15 +405,17 @@ internal class Program
                 {
                     var watchdogLogger = serviceProvider.GetRequiredService<ILogger<Watchdog>>();
                     var updaterLogger = serviceProvider.GetRequiredService<ILogger<ServerUpdater>>();
-                    var watchdog = new Watchdog(gameServer, appSettings.SteamCMDPath, watchdogLogger, updaterLogger, notificationManager);
-                    watchdogs.Add(watchdog);
+                    var watchdog = new Watchdog(gameServer, appSettings.SteamCMDPath, watchdogLogger, updaterLogger, 
+                        notificationManager, updateCheckInterval);
+                    _disposables.Add(watchdog); // Track for cleanup
                     watchdog.Start();
                 }
                 else if (gameServer.AutoUpdate || gameServer.AutoBackup)
                 {
                     var updaterLogger = serviceProvider.GetRequiredService<ILogger<ServerUpdater>>();
-                    var updater = new ServerUpdater(gameServer, appSettings.SteamCMDPath, updaterLogger, notificationManager);
-                    updaters.Add(updater);
+                    var updater = new ServerUpdater(gameServer, appSettings.SteamCMDPath, updaterLogger, 
+                        notificationManager, updateCheckInterval);
+                    _disposables.Add(updater); // Track for cleanup
                     updater.Start();
                 }
             }

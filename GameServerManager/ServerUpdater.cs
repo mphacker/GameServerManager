@@ -6,10 +6,10 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using System.Text;
 
 /// <summary>
-/// Handles scheduled update and backup operations for a game server.
+/// Handles update detection and backup operations for a game server.
+/// Uses SteamCMD for periodic update checking with adaptive rate limiting.
 /// </summary>
 public class ServerUpdater : IAsyncDisposable
 {
@@ -19,13 +19,14 @@ public class ServerUpdater : IAsyncDisposable
     private readonly ServerUpdateService _updateService;
     private readonly ServerBackupService _backupService;
     private readonly ProcessManager _processManager;
+    private readonly SteamCmdUpdateChecker? _updateChecker;
     private readonly Timer _timer;
     private DateTime _lastBackupDate;
-    private DateTime _lastUpdateDate;
     private int _updateInProgress = 0; // 0 = false, 1 = true
     private volatile bool _disposed;
-    private bool _pendingUpdate = false;
     private bool _pendingBackup = false;
+    private int _isCheckingForUpdate = 0; // Changed to int for Interlocked operations
+    private bool _hasPerformedStartupCheck = false;
 
     /// <summary>
     /// Indicates if an update or backup is currently in progress.
@@ -33,11 +34,32 @@ public class ServerUpdater : IAsyncDisposable
     public bool UpdateInProgress => Interlocked.CompareExchange(ref _updateInProgress, 0, 0) == 1;
 
     /// <summary>
+    /// Indicates if currently checking for updates (SteamCMD running in background).
+    /// </summary>
+    public bool IsCheckingForUpdate => Interlocked.CompareExchange(ref _isCheckingForUpdate, 0, 0) == 1;
+
+    /// <summary>
+    /// Gets the last time an update check was performed.
+    /// </summary>
+    public DateTime? LastUpdateCheck => _updateChecker?.LastCheckTime == DateTime.MinValue ? null : _updateChecker?.LastCheckTime;
+
+    /// <summary>
+    /// Gets the next time an update check will occur.
+    /// </summary>
+    public DateTime? NextUpdateCheck => _updateChecker?.NextCheckTime;
+
+    /// <summary>
+    /// Gets the current update check interval being used.
+    /// </summary>
+    public TimeSpan? CurrentCheckInterval => _updateChecker?.CurrentCheckInterval;
+
+    /// <summary>
     /// Notification manager for sending notifications.
     /// </summary>
     public NotificationManager? NotificationManager { get; set; }
 
-    public ServerUpdater(GameServer gameServer, string steamCmdPath, ILogger<ServerUpdater> logger, NotificationManager? notificationManager = null)
+    public ServerUpdater(GameServer gameServer, string steamCmdPath, ILogger<ServerUpdater> logger, 
+        NotificationManager? notificationManager = null, int updateCheckIntervalMinutes = 30)
     {
         _gameServer = gameServer;
         _steamCmdPath = steamCmdPath;
@@ -45,104 +67,173 @@ public class ServerUpdater : IAsyncDisposable
         _updateService = new(_logger);
         _backupService = new(_logger);
         _processManager = new(_logger);
-        _timer = new(async _ => await AutoUpdateCheckAsync(), null, Timeout.Infinite, Timeout.Infinite);
-        // Initialize last update/backup from persisted values
-        _lastUpdateDate = _gameServer.LastUpdateDate ?? DateTime.MinValue;
+        
+        // Initialize update checker ONLY for Steam games with AutoUpdate enabled and valid SteamAppId
+        if (_gameServer.AutoUpdate && !string.IsNullOrWhiteSpace(_gameServer.SteamAppId))
+        {
+            var checkInterval = TimeSpan.FromMinutes(updateCheckIntervalMinutes);
+            _updateChecker = new SteamCmdUpdateChecker(steamCmdPath, _gameServer.GamePath, logger, checkInterval);
+            _logger.LogInformation($"Update checker initialized for {_gameServer.Name} (SteamAppId: {_gameServer.SteamAppId}) with {updateCheckIntervalMinutes} minute interval");
+            
+            // Read the actual local build ID if not already set
+            if (!_gameServer.CurrentBuildId.HasValue)
+            {
+                var localBuildId = _updateChecker.GetLocalBuildId(_gameServer.SteamAppId);
+                if (localBuildId.HasValue)
+                {
+                    _gameServer.CurrentBuildId = localBuildId.Value;
+                    AppSettingsHelper.UpdateServerBuildId(_gameServer.Name, localBuildId.Value);
+                    _logger.LogInformation($"Discovered local build ID for {_gameServer.Name}: {localBuildId.Value}");
+                }
+            }
+        }
+        else if (_gameServer.AutoUpdate && string.IsNullOrWhiteSpace(_gameServer.SteamAppId))
+        {
+            // Log warning if AutoUpdate is enabled but no SteamAppId (non-Steam app)
+            _logger.LogWarning($"AutoUpdate is enabled for {_gameServer.Name} but SteamAppId is empty. This appears to be a non-Steam application. AutoUpdate will be skipped.");
+        }
+        
+        _timer = new(async _ => await PeriodicCheckAsync(), null, Timeout.Infinite, Timeout.Infinite);
+        
+        // Initialize last backup from persisted value
         _lastBackupDate = _gameServer.LastBackupDate ?? DateTime.MinValue;
         NotificationManager = notificationManager;
     }
 
     /// <summary>
-    /// Starts the auto-update check timer.
+    /// Starts the periodic check timer (runs every minute).
     /// </summary>
     public void Start()
     {
-        _logger.LogInformation("Auto-update check process started for {ServerName}", _gameServer.Name);
-        _timer.Change(TimeSpan.Zero, TimeSpan.FromMinutes(1));
+        _logger.LogInformation("Periodic check process started for {ServerName}", _gameServer.Name);
+        _timer.Change(TimeSpan.FromSeconds(5), TimeSpan.FromMinutes(1)); // First check after 5 seconds, then every minute
     }
 
     /// <summary>
-    /// Stops the auto-update check timer.
+    /// Stops the periodic check timer.
     /// </summary>
     public void Stop()
     {
-        _logger.LogInformation("Auto-update check process stopped for {ServerName}", _gameServer.Name);
+        _logger.LogInformation("Periodic check process stopped for {ServerName}", _gameServer.Name);
         _timer.Change(Timeout.Infinite, Timeout.Infinite);
     }
 
-    private async Task AutoUpdateCheckAsync()
+    /// <summary>
+    /// Periodic check for updates and backups.
+    /// </summary>
+    private async Task PeriodicCheckAsync()
     {
-        // Log\ next scheduled update/backup times
-        string nextUpdate = GetNextScheduledTime(_gameServer.AutoUpdate, _gameServer.AutoUpdateTime, _lastUpdateDate, "update");
-        string nextBackup = GetNextScheduledTime(_gameServer.AutoBackup, _gameServer.AutoBackupTime, _lastBackupDate, "backup");
-        _logger.LogInformation("[Schedule] {ServerName}: Next Update: {NextUpdate}, Next Backup: {NextBackup}", _gameServer.Name, nextUpdate, nextBackup);
-
-        // Only allow one operation at a time
-        if (UpdateInProgress)
+        // Perform startup check immediately (first run only)
+        if (!_hasPerformedStartupCheck && _updateChecker != null && !UpdateInProgress && !IsCheckingForUpdate)
         {
-            _logger.LogInformation("Update or backup already in progress for {ServerName}. Skipping scheduled operations.", _gameServer.Name);
-            // If either is due, set pending flags
-            if (await IsTimeToUpdateServerAsync()) _pendingUpdate = true;
-            if (await IsTimeToBackupServerAsync()) _pendingBackup = true;
-            return;
+            _hasPerformedStartupCheck = true;
+            Program.LogWithStatus(_logger, LogLevel.Information, $"[Startup] Performing startup build check for {_gameServer.Name}");
+            await CheckForUpdatesAsync(forceCheck: true);
+            return; // Exit after startup check to avoid running regular check in same cycle
         }
 
-        // If a pending update or backup exists, run it first
-        if (_pendingUpdate)
+        // Check for updates (if enabled, not in progress, and enough time has passed)
+        if (_updateChecker != null && !UpdateInProgress && !IsCheckingForUpdate && _updateChecker.CanCheckNow)
         {
-            _logger.LogInformation("Pending update for {ServerName} is being processed.", _gameServer.Name);
-            _pendingUpdate = false;
-            await UpdateServerAsync();
-            // After update, check if backup is now due and not running
-            if (!_pendingBackup && await IsTimeToBackupServerAsync())
-            {
-                _pendingBackup = true;
-            }
+            await CheckForUpdatesAsync();
+        }
+
+        // Check for scheduled backups
+        if (!UpdateInProgress && !IsCheckingForUpdate)
+        {
             if (_pendingBackup)
             {
-                await AutoUpdateCheckAsync();
+                _logger.LogInformation("Pending backup for {ServerName} is being processed.", _gameServer.Name);
+                _pendingBackup = false;
+                await BackupServerAsync();
+                return;
             }
-            return;
+
+            if (await IsTimeToBackupServerAsync())
+            {
+                await BackupServerAsync();
+            }
         }
-        if (_pendingBackup)
+    }
+
+    /// <summary>
+    /// Checks for updates using SteamCMD (runs in background, doesn't stop the server).
+    /// </summary>
+    private async Task CheckForUpdatesAsync(bool forceCheck = false)
+    {
+        if (_updateChecker == null)
+            return;
+
+        // Use Interlocked to ensure only one check runs at a time
+        if (Interlocked.CompareExchange(ref _isCheckingForUpdate, 1, 0) == 1)
         {
-            _logger.LogInformation("Pending backup for {ServerName} is being processed.", _gameServer.Name);
-            _pendingBackup = false;
-            await BackupServerAsync();
-            // After backup, check if update is now due and not running
-            if (!_pendingUpdate && await IsTimeToUpdateServerAsync())
-            {
-                _pendingUpdate = true;
-            }
-            if (_pendingUpdate)
-            {
-                await AutoUpdateCheckAsync();
-            }
+            _logger.LogDebug($"Update check already in progress for {_gameServer.Name}, skipping");
             return;
         }
 
-        // Prioritize update over backup if both are scheduled at the same time
-        if (await IsTimeToUpdateServerAsync())
+        try
         {
-            await UpdateServerAsync();
-            // After update, check if backup is now due and not running
-            if (await IsTimeToBackupServerAsync())
+            Program.LogWithStatus(_logger, LogLevel.Information, $"[Check] Checking for updates: {_gameServer.Name}");
+
+            UpdateCheckResult? result;
+            if (forceCheck)
             {
-                _pendingBackup = true;
-                await AutoUpdateCheckAsync();
+                result = await _updateChecker.ForceCheckNowAsync(_gameServer.SteamAppId, _gameServer.CurrentBuildId);
             }
-            return;
+            else
+            {
+                result = await _updateChecker.CheckForUpdateAsync(_gameServer.SteamAppId, _gameServer.CurrentBuildId);
+            }
+
+            if (result == null)
+            {
+                // Rate limited or too soon to check
+                _logger.LogDebug($"Update check for {_gameServer.Name} returned null (rate limited or too soon)");
+                return;
+            }
+
+            if (!result.Success)
+            {
+                _logger.LogWarning($"Update check failed for {_gameServer.Name}: {result.ErrorMessage}");
+                return;
+            }
+
+            // Update last check time
+            _gameServer.LastUpdateCheck = DateTime.Now;
+            AppSettingsHelper.UpdateServerLastCheck(_gameServer.Name, DateTime.Now);
+
+            // If we don't have a local build ID yet, this check result becomes our baseline
+            if (!_gameServer.CurrentBuildId.HasValue)
+            {
+                _gameServer.CurrentBuildId = result.NewBuildId;
+                AppSettingsHelper.UpdateServerBuildId(_gameServer.Name, result.NewBuildId);
+                Program.LogWithStatus(_logger, LogLevel.Information, 
+                    $"[OK] {_gameServer.Name}: Steam reports build {result.NewBuildId} (local build ID unknown - assuming up to date)");
+                return;
+            }
+
+            // Check if update is available
+            if (result.UpdateAvailable)
+            {
+                Program.LogWithStatus(_logger, LogLevel.Warning, 
+                    $"[UPDATE] UPDATE AVAILABLE for {_gameServer.Name}: Local Build {result.CurrentBuildId} -> Steam Build {result.NewBuildId}");
+                
+                // Trigger update
+                await UpdateServerAsync(result.NewBuildId);
+            }
+            else
+            {
+                Program.LogWithStatus(_logger, LogLevel.Information, 
+                    $"[OK] {_gameServer.Name} is up to date (Local: {result.CurrentBuildId}, Steam: {result.NewBuildId})");
+            }
         }
-        if (await IsTimeToBackupServerAsync())
+        catch (Exception ex)
         {
-            await BackupServerAsync();
-            // After backup, check if update is now due and not running
-            if (await IsTimeToUpdateServerAsync())
-            {
-                _pendingUpdate = true;
-                await AutoUpdateCheckAsync();
-            }
-            return;
+            _logger.LogError($"Error checking for updates for {_gameServer.Name}: {ex.Message}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _isCheckingForUpdate, 0);
         }
     }
 
@@ -171,39 +262,26 @@ public class ServerUpdater : IAsyncDisposable
         return $"invalid {type} schedule";
     }
 
-    public ValueTask<bool> IsTimeToUpdateServerAsync() => new(CheckUpdateConditions(_gameServer.AutoUpdate, _gameServer.AutoUpdateTime, ref _lastUpdateDate, "update"));
-    public ValueTask<bool> IsTimeToBackupServerAsync() => new(CheckUpdateConditions(_gameServer.AutoBackup, _gameServer.AutoBackupTime, ref _lastBackupDate, "backup"));
+    public ValueTask<bool> IsTimeToBackupServerAsync() => new(CheckBackupConditions());
 
-    private bool CheckUpdateConditions(bool enabled, string schedule, ref DateTime lastRun, string type)
+    private bool CheckBackupConditions()
     {
-        if (!enabled)
+        if (!_gameServer.AutoBackup)
         {
-            _logger.LogDebug($"{type} is not enabled for {{ServerName}}.", _gameServer.Name);
             return false;
         }
-        if (UpdateInProgress)
+        if (UpdateInProgress || IsCheckingForUpdate)
         {
-            _logger.LogDebug($"{type} is not checked because another operation is in progress for {{ServerName}}.", _gameServer.Name);
             return false;
         }
         var now = DateTime.Now;
-        bool cronValid = false;
-        bool legacyValid = false;
-        bool shouldRun = false;
-        // Try CRON parse only
-        CrontabSchedule? cron = null;
+        var schedule = _gameServer.AutoBackupTime;
+        
+        // Try CRON parse
         try
         {
-            cron = CrontabSchedule.Parse(schedule);
-            cronValid = true;
-        }
-        catch
-        {
-            cronValid = false;
-        }
-        if (cronValid && cron != null)
-        {
-            DateTime safeLastRun = lastRun == DateTime.MinValue ? now : lastRun;
+            var cron = CrontabSchedule.Parse(schedule);
+            DateTime safeLastRun = _lastBackupDate == DateTime.MinValue ? now : _lastBackupDate;
             DateTime prev;
             try
             {
@@ -214,92 +292,155 @@ public class ServerUpdater : IAsyncDisposable
                 prev = cron.GetNextOccurrence(now.AddSeconds(-60));
             }
             if (prev > now) prev = cron.GetNextOccurrence(now.AddSeconds(-60));
-            _logger.LogDebug($"[CRON] {type} for {{ServerName}}: lastRun={{LastRun}}, prev={{Prev}}, now={{Now}}", _gameServer.Name, lastRun, prev, now);
-            if (lastRun < prev && now >= prev)
+            
+            if (_lastBackupDate < prev && now >= prev)
             {
-                lastRun = prev;
-                _logger.LogInformation($"CRON {type} time reached for {{ServerName}}.", _gameServer.Name);
-                shouldRun = true;
+                _lastBackupDate = prev;
+                _logger.LogInformation($"CRON backup time reached for {_gameServer.Name}.");
+                return true;
             }
-            else
-            {
-                _logger.LogDebug($"CRON {type} not due for {{ServerName}}. lastRun={{LastRun}}, prev={{Prev}}, now={{Now}}", _gameServer.Name, lastRun, prev, now);
-            }
+            return false;
         }
+        catch { }
+        
         // Try legacy time
         if (DateTime.TryParseExact(schedule, new[] { "HH:mm", "hh:mm tt", "H:mm", "h:mm tt" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out var scheduledTime))
         {
-            legacyValid = true;
             var scheduledToday = new DateTime(now.Year, now.Month, now.Day, scheduledTime.Hour, scheduledTime.Minute, 0);
             var scheduledPrev = scheduledToday;
             if (now < scheduledToday)
                 scheduledPrev = scheduledToday.AddDays(-1);
-            _logger.LogDebug($"[Legacy] {type} for {{ServerName}}: lastRun={{LastRun}}, scheduledPrev={{ScheduledPrev}}, now={{Now}}", _gameServer.Name, lastRun, scheduledPrev, now);
-            if (lastRun < scheduledPrev && now >= scheduledPrev)
+            
+            if (_lastBackupDate < scheduledPrev && now >= scheduledPrev)
             {
-                lastRun = scheduledPrev;
-                _logger.LogInformation($"Legacy {type} time reached for {{ServerName}}.", _gameServer.Name);
-                shouldRun = true;
-            }
-            else
-            {
-                _logger.LogDebug($"Legacy {type} not due for {{ServerName}}. lastRun={{LastRun}}, scheduledPrev={{ScheduledPrev}}, now={{Now}}", _gameServer.Name, lastRun, scheduledPrev, now);
+                _lastBackupDate = scheduledPrev;
+                _logger.LogInformation($"Legacy backup time reached for {_gameServer.Name}.");
+                return true;
             }
         }
-        if (!cronValid && !legacyValid && !string.IsNullOrWhiteSpace(schedule))
-        {
-            _logger.LogWarning($"Invalid {type} time format for {{ServerName}}: {{Schedule}}", _gameServer.Name, schedule);
-        }
-        return shouldRun;
+        
+        return false;
     }
 
-    public async Task<bool> UpdateServerAsync()
+    /// <summary>
+    /// Performs a server update (stops server, runs SteamCMD, restarts server).
+    /// Performs a backup before updating if AutoBackup is enabled.
+    /// </summary>
+    public async Task<bool> UpdateServerAsync(int? newBuildId = null)
     {
         if (Interlocked.CompareExchange(ref _updateInProgress, 1, 0) == 1)
         {
             Program.LogWithStatus(_logger, LogLevel.Information, $"Update already in progress for {_gameServer.Name}...");
             return false;
         }
-        Program.LogWithStatus(_logger, LogLevel.Information, $"Updating {_gameServer.Name}...");
+        
+        Program.LogWithStatus(_logger, LogLevel.Warning, $"[Updating] UPDATING {_gameServer.Name}...");
+        
         try
         {
-            bool needToRestartServer = false;
-            // Stop process if running
-            if (await _processManager.IsProcessRunningAsync(_gameServer.ProcessName))
+            bool serverWasRunning = await _processManager.IsProcessRunningAsync(_gameServer.ProcessName);
+            
+            // Step 1: Perform pre-update backup if enabled
+            if (_gameServer.AutoBackup)
             {
-                needToRestartServer = true;
-                Program.LogWithStatus(_logger, LogLevel.Information, $"Process for {_gameServer.Name} is running. Stopping server.");
-                await _processManager.StopProcessAsync(_gameServer.ProcessName);
-            }
-            // Update
-            if (_gameServer.AutoUpdate)
-            {
-                var updateResult = await _updateService.UpdateAsync(_gameServer, _steamCmdPath);
-                if (!updateResult)
+                Program.LogWithStatus(_logger, LogLevel.Information, $"[Backup] Creating pre-update backup for {_gameServer.Name}...");
+                
+                // Stop server for backup if it's running and BackupWithoutShutdown is false
+                if (serverWasRunning && !_gameServer.BackupWithoutShutdown)
                 {
-                    Program.LogWithStatus(_logger, LogLevel.Error, $"Update failed for {_gameServer.Name}");
-                    NotificationManager?.NotifyError($"Update failed for {_gameServer.Name}", $"Update failed for {_gameServer.Name}.");
+                    Program.LogWithStatus(_logger, LogLevel.Information, $"[Stop] Stopping {_gameServer.Name} for pre-update backup...");
+                    if (!await _processManager.StopProcessAsync(_gameServer.ProcessName))
+                    {
+                        Program.LogWithStatus(_logger, LogLevel.Warning, $"[Warn] Could not gracefully stop {_gameServer.Name}, forcing termination...");
+                        await _processManager.KillProcessAsync(_gameServer.ProcessName);
+                    }
+                }
+                
+                var backupResult = await _backupService.BackupAsync(_gameServer);
+                if (!backupResult)
+                {
+                    Program.LogWithStatus(_logger, LogLevel.Error, $"[Error] Pre-update backup failed for {_gameServer.Name}. Update aborted.");
+                    NotificationManager?.NotifyError($"Pre-update backup failed for {_gameServer.Name}", "Update aborted due to backup failure.");
+                    
+                    // Restart server if we stopped it
+                    if (serverWasRunning && !_gameServer.BackupWithoutShutdown)
+                    {
+                        await _processManager.StartProcessAsync(_gameServer);
+                    }
                     return false;
                 }
-                // Persist last update date
-                _lastUpdateDate = DateTime.Now;
-                _gameServer.LastUpdateDate = _lastUpdateDate;
-                AppSettingsHelper.UpdateServerLastDates(_gameServer.Name, _lastUpdateDate, null);
+                
+                _lastBackupDate = DateTime.Now;
+                _gameServer.LastBackupDate = _lastBackupDate;
+                AppSettingsHelper.UpdateServerLastDates(_gameServer.Name, null, _lastBackupDate);
+                Program.LogWithStatus(_logger, LogLevel.Information, $"[OK] Pre-update backup completed for {_gameServer.Name}");
             }
-            // Restart
-            if (needToRestartServer)
+            
+            // Step 2: Ensure server is stopped for update
+            if (serverWasRunning && _gameServer.AutoBackup && _gameServer.BackupWithoutShutdown)
             {
-                Program.LogWithStatus(_logger, LogLevel.Information, $"Restarting process for {_gameServer.Name}");
+                // Server is still running because we backed up without shutdown
+                Program.LogWithStatus(_logger, LogLevel.Information, $"[Stop] Stopping {_gameServer.Name} for update...");
+                if (!await _processManager.StopProcessAsync(_gameServer.ProcessName))
+                {
+                    Program.LogWithStatus(_logger, LogLevel.Warning, $"[Warn] Could not gracefully stop {_gameServer.Name}, forcing termination...");
+                    await _processManager.KillProcessAsync(_gameServer.ProcessName);
+                }
+            }
+            else if (serverWasRunning && !_gameServer.AutoBackup)
+            {
+                // No backup was done, but server needs to be stopped
+                Program.LogWithStatus(_logger, LogLevel.Information, $"[Stop] Stopping {_gameServer.Name} for update...");
+                if (!await _processManager.StopProcessAsync(_gameServer.ProcessName))
+                {
+                    Program.LogWithStatus(_logger, LogLevel.Warning, $"[Warn] Could not gracefully stop {_gameServer.Name}, forcing termination...");
+                    await _processManager.KillProcessAsync(_gameServer.ProcessName);
+                }
+            }
+            
+            // Step 3: Perform update via SteamCMD
+            Program.LogWithStatus(_logger, LogLevel.Information, $"[Download] Downloading update for {_gameServer.Name}...");
+            var updateResult = await _updateService.UpdateAsync(_gameServer, _steamCmdPath);
+            if (!updateResult)
+            {
+                Program.LogWithStatus(_logger, LogLevel.Error, $"[Error] Update failed for {_gameServer.Name}");
+                NotificationManager?.NotifyError($"Update failed for {_gameServer.Name}", $"SteamCMD update failed for {_gameServer.Name}.");
+                
+                // Restart server if it was running before
+                if (serverWasRunning)
+                {
+                    Program.LogWithStatus(_logger, LogLevel.Information, $"[Start] Restarting {_gameServer.Name} after failed update...");
+                    await _processManager.StartProcessAsync(_gameServer);
+                }
+                return false;
+            }
+            
+            // Step 4: Update build ID and timestamp
+            if (newBuildId.HasValue)
+            {
+                _gameServer.CurrentBuildId = newBuildId.Value;
+                AppSettingsHelper.UpdateServerBuildId(_gameServer.Name, newBuildId.Value);
+                Program.LogWithStatus(_logger, LogLevel.Information, $"[Update] Updated build ID for {_gameServer.Name} to {newBuildId.Value}");
+            }
+            
+            _gameServer.LastUpdateDate = DateTime.Now;
+            AppSettingsHelper.UpdateServerLastDates(_gameServer.Name, _gameServer.LastUpdateDate, null);
+            
+            // Step 5: Restart server if it was running before update
+            if (serverWasRunning)
+            {
+                Program.LogWithStatus(_logger, LogLevel.Information, $"[Start] Restarting {_gameServer.Name}...");
                 await _processManager.StartProcessAsync(_gameServer);
-                Program.LogWithStatus(_logger, LogLevel.Information, $"Waiting 30 seconds for {_gameServer.Name} to start.");
+                Program.LogWithStatus(_logger, LogLevel.Information, $"[Wait] Waiting 30 seconds for {_gameServer.Name} to start...");
                 await Task.Delay(TimeSpan.FromSeconds(30));
             }
-            Program.LogWithStatus(_logger, LogLevel.Information, $"Update completed for {_gameServer.Name}");
+            
+            Program.LogWithStatus(_logger, LogLevel.Information, $"[OK] Update completed for {_gameServer.Name}");
             return true;
         }
         catch (Exception ex)
         {
-            Program.LogWithStatus(_logger, LogLevel.Error, $"Update error for {_gameServer.Name}: {ex.Message}");
+            Program.LogWithStatus(_logger, LogLevel.Error, $"[Error] Update error for {_gameServer.Name}: {ex.Message}");
             NotificationManager?.NotifyError($"Exception updating {_gameServer.Name}", ex.ToString());
             return false;
         }
@@ -316,7 +457,7 @@ public class ServerUpdater : IAsyncDisposable
             Program.LogWithStatus(_logger, LogLevel.Information, $"Backup already in progress for {_gameServer.Name}...");
             return false;
         }
-        Program.LogWithStatus(_logger, LogLevel.Information, $"Backing up {_gameServer.Name}...");
+        Program.LogWithStatus(_logger, LogLevel.Information, $"[Backup] Backing up {_gameServer.Name}...");
         try
         {
             bool needToRestartServer = false;
@@ -350,7 +491,7 @@ public class ServerUpdater : IAsyncDisposable
                 Program.LogWithStatus(_logger, LogLevel.Information, $"Waiting 30 seconds for {_gameServer.Name} to start.");
                 await Task.Delay(TimeSpan.FromSeconds(30));
             }
-            Program.LogWithStatus(_logger, LogLevel.Information, $"Backup completed for {_gameServer.Name}");
+            Program.LogWithStatus(_logger, LogLevel.Information, $"[OK] Backup completed for {_gameServer.Name}");
             return true;
         }
         catch (Exception ex)
@@ -369,7 +510,15 @@ public class ServerUpdater : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         if (_disposed) return;
-        _timer.Dispose();
+        
+        _logger.LogInformation($"Disposing ServerUpdater for {_gameServer.Name}");
+        
+        // Stop the timer
+        await _timer.DisposeAsync();
+        
+        // Dispose update checker (will kill any running SteamCMD process)
+        _updateChecker?.Dispose();
+        
         _disposed = true;
         await Task.CompletedTask;
     }

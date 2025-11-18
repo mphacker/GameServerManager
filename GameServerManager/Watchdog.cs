@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 
 namespace GameServerManager
 {
-    public class Watchdog
+    public class Watchdog : IAsyncDisposable
     {
         private readonly GameServer _gameServer;
         private readonly string _steamCmdPath;
@@ -14,21 +14,26 @@ namespace GameServerManager
         private readonly ILogger<Watchdog> _logger;
         private readonly NotificationManager? _notificationManager;
         private bool _startupCheckDone = false;
+        private bool _disposed = false;
 
-        public Watchdog(GameServer gameServer, string steamCmdPath, ILogger<Watchdog> logger, ILogger<ServerUpdater> updaterLogger, NotificationManager? notificationManager = null)
+        public Watchdog(GameServer gameServer, string steamCmdPath, ILogger<Watchdog> logger, 
+            ILogger<ServerUpdater> updaterLogger, NotificationManager? notificationManager = null,
+            int updateCheckIntervalMinutes = 30)
         {
             _gameServer = gameServer;
             _steamCmdPath = steamCmdPath;
             _logger = logger;
             _timer = new System.Timers.Timer(30000); // Check every 30 seconds
             _timer.Elapsed += async (sender, e) => await CheckProcessAsync();
-            _updater = new ServerUpdater(_gameServer, _steamCmdPath, updaterLogger, notificationManager);
+            _updater = new ServerUpdater(_gameServer, _steamCmdPath, updaterLogger, notificationManager, 
+                updateCheckIntervalMinutes);
             _notificationManager = notificationManager;
         }
 
         public void Start()
         {
             Program.LogWithStatus(_logger, LogLevel.Information, $"Watchdog started for {_gameServer.Name}");
+            _updater.Start();
             _timer.AutoReset = true;
             _timer.Enabled = true;
             _timer.Start();
@@ -38,11 +43,12 @@ namespace GameServerManager
         {
             Program.LogWithStatus(_logger, LogLevel.Information, $"Watchdog stopped for {_gameServer.Name}");
             _timer.Stop();
+            _updater.Stop();
         }
 
         private async Task CheckProcessAsync()
         {
-            // On first check after startup, trigger immediate backup/update if needed
+            // On first check after startup, trigger immediate backup if needed
             if (!_startupCheckDone)
             {
                 _startupCheckDone = true;
@@ -50,19 +56,11 @@ namespace GameServerManager
                 {
                     await _updater.BackupServerAsync();
                 }
-                if (_gameServer.AutoUpdate && !_gameServer.LastUpdateDate.HasValue)
-                {
-                    await _updater.UpdateServerAsync();
-                }
             }
+            
             Program.LogWithStatus(_logger, LogLevel.Information, $"Checking process for {_gameServer.Name}");
-            if (_gameServer.AutoUpdate)
-            {
-                if (await _updater.IsTimeToUpdateServerAsync())
-                {
-                    await _updater.UpdateServerAsync();
-                }
-            }
+            
+            // Check for backups
             if (_gameServer.AutoBackup)
             {
                 if (await _updater.IsTimeToBackupServerAsync())
@@ -70,11 +68,13 @@ namespace GameServerManager
                     await _updater.BackupServerAsync();
                 }
             }
-            if (_updater.UpdateInProgress)
+            
+            if (_updater.UpdateInProgress || _updater.IsCheckingForUpdate)
             {
                 Program.LogWithStatus(_logger, LogLevel.Information, $"Update or backup in progress for {_gameServer.Name}. Skipping process check.");
                 return;
             }
+            
             var process = System.Diagnostics.Process.GetProcessesByName(_gameServer.ProcessName).FirstOrDefault();
             if (process == null || process.HasExited)
             {
@@ -112,6 +112,19 @@ namespace GameServerManager
                 Program.LogWithStatus(_logger, LogLevel.Error, $"Error starting or restarting {_gameServer.Name}: {ex.Message}");
                 _notificationManager?.NotifyError($"Error starting/restarting {_gameServer.Name}", ex.ToString());
             }
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (_disposed) return;
+            
+            _logger.LogInformation($"Disposing Watchdog for {_gameServer.Name}");
+            
+            Stop();
+            _timer?.Dispose();
+            await _updater.DisposeAsync();
+            
+            _disposed = true;
         }
     }
 }

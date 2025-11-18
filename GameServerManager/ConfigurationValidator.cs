@@ -21,6 +21,10 @@ namespace GameServerManager
                     errors.Add($"SteamCMDPath is invalid or missing: {settings.SteamCMDPath}. Required because at least one server has AutoUpdate enabled.");
             }
             
+            // Validate UpdateCheckIntervalMinutes
+            if (settings.UpdateCheckIntervalMinutes < 15)
+                errors.Add($"UpdateCheckIntervalMinutes must be at least 15 minutes (currently: {settings.UpdateCheckIntervalMinutes})");
+            
             if (settings.GameServers == null || settings.GameServers.Count == 0)
                 errors.Add("No game servers configured.");
             else
@@ -53,15 +57,8 @@ namespace GameServerManager
             
             if (gameServer.AutoBackup && (string.IsNullOrWhiteSpace(gameServer.AutoBackupSource) || string.IsNullOrWhiteSpace(gameServer.AutoBackupDest)))
                 errors.Add($"Invalid backup source or destination for {gameServer.Name}");
-            // Validate update/backup time formats
-            if (!string.IsNullOrWhiteSpace(gameServer.AutoUpdateTime))
-            {
-                bool valid = false;
-                try { NCrontab.CrontabSchedule.Parse(gameServer.AutoUpdateTime); valid = true; }
-                catch { valid = DateTime.TryParseExact(gameServer.AutoUpdateTime, new[] { "HH:mm", "hh:mm tt", "H:mm", "h:mm tt" }, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _); }
-                if (!valid)
-                    errors.Add($"Invalid AutoUpdateTime for {gameServer.Name}: {gameServer.AutoUpdateTime}");
-            }
+            
+            // Validate backup time format only
             if (!string.IsNullOrWhiteSpace(gameServer.AutoBackupTime))
             {
                 bool valid = false;

@@ -45,7 +45,8 @@ namespace GameServerManager
     public interface IProcessManager
     {
         Task<bool> IsProcessRunningAsync(string processName);
-        Task StopProcessAsync(string processName);
+        Task<bool> StopProcessAsync(string processName);
+        Task KillProcessAsync(string processName);
         Task StartProcessAsync(GameServer gameServer);
     }
 
@@ -68,28 +69,63 @@ namespace GameServerManager
             );
         }
 
-        public async Task StopProcessAsync(string processName)
+        public async Task<bool> StopProcessAsync(string processName)
+        {
+            if (string.IsNullOrWhiteSpace(processName))
+                return false;
+
+            var process = _processWrapper.GetProcessesByName(processName).FirstOrDefault();
+            if (process == null || process.HasExited)
+                return true; // Already stopped
+
+            try
+            {
+                _logger.LogInformation($"Attempting graceful shutdown of {processName}...");
+                process.CloseMainWindow();
+
+                // Wait up to 30 seconds for graceful shutdown
+                var exited = await Task.Run(() =>
+                {
+                    process.WaitForExit(30000);
+                    return process.HasExited;
+                });
+
+                if (exited)
+                {
+                    Program.LogWithStatus(_logger, LogLevel.Information, $"[OK] Process {processName} stopped gracefully.");
+                    return true;
+                }
+                else
+                {
+                    Program.LogWithStatus(_logger, LogLevel.Warning, $"[Warn] Process {processName} did not respond to graceful shutdown after 30 seconds.");
+                    return false; // Could not stop gracefully
+                }
+            }
+            catch (Exception ex)
+            {
+                Program.LogWithStatus(_logger, LogLevel.Error, $"[Error] Error stopping process {processName}: {ex.Message}");
+                return false;
+            }
+        }
+
+        public async Task KillProcessAsync(string processName)
         {
             if (string.IsNullOrWhiteSpace(processName))
                 return;
+
             var process = _processWrapper.GetProcessesByName(processName).FirstOrDefault();
-            if (process != null && !process.HasExited)
+            if (process == null || process.HasExited)
+                return; // Already dead
+
+            try
             {
-                try
-                {
-                    process.CloseMainWindow();
-                    await Task.Run(() => process.WaitForExit(10000));
-                    if (!process.HasExited)
-                    {
-                        Program.LogWithStatus(_logger, LogLevel.Warning, $"Process {processName} did not exit in time. Killing process.");
-                        process.Kill();
-                    }
-                    Program.LogWithStatus(_logger, LogLevel.Information, $"Process {processName} stopped.");
-                }
-                catch (Exception ex)
-                {
-                    Program.LogWithStatus(_logger, LogLevel.Error, $"Error stopping process {processName}: {ex.Message}");
-                }
+                Program.LogWithStatus(_logger, LogLevel.Warning, $"[Kill] Forcefully terminating {processName}...");
+                await Task.Run(() => process.Kill());
+                Program.LogWithStatus(_logger, LogLevel.Information, $"[OK] Process {processName} terminated.");
+            }
+            catch (Exception ex)
+            {
+                Program.LogWithStatus(_logger, LogLevel.Error, $"[Error] Error killing process {processName}: {ex.Message}");
             }
         }
 

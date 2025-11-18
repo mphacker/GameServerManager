@@ -9,6 +9,7 @@ using System.Collections.Generic;
 public class Settings
 {
     public string SteamCMDPath { get; set; } = string.Empty;
+    public int UpdateCheckIntervalMinutes { get; set; } = 30; // Default: check every 30 minutes
     public List<GameServer>? GameServers { get; set; }
 }
 
@@ -25,7 +26,8 @@ public class GameServer
     public string SteamAppId { get; set; } = string.Empty;
     public bool AutoRestart { get; set; } = false;
     public bool AutoUpdate { get; set; } = false;
-    public string AutoUpdateTime { get; set; } = "05:30 AM";
+    public int? CurrentBuildId { get; set; } // Track current build ID for update detection
+    public DateTime? LastUpdateCheck { get; set; } // Last time we checked for updates
     public bool AutoBackup { get; set; } = false;
     public string AutoBackupTime { get; set; } = "05:30 AM";
     public string AutoBackupSource { get; set; } = string.Empty;
