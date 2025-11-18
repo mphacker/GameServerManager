@@ -113,7 +113,7 @@ public class ConfigurationCLI
                     break;
                 case "Save and Exit":
                     SaveConfiguration(settings, notificationSettings);
-                    AnsiConsole.MarkupLine("\n[green]? Configuration saved successfully![/]");
+                    AnsiConsole.MarkupLine("\n[green][[OK]] Configuration saved successfully![/]");
                     Thread.Sleep(1000);
                     return;
                 case "Exit without Saving":
@@ -210,7 +210,7 @@ public class ConfigurationCLI
         }
 
         var serverChoices = servers.Select((s, i) => $"{i + 1}. {s.Name} ({s.GamePath})").ToList();
-        serverChoices.Add("? Back");
+        serverChoices.Add("<< Back");
 
         var choice = AnsiConsole.Prompt(
             new SelectionPrompt<string>()
@@ -218,7 +218,7 @@ public class ConfigurationCLI
                 .PageSize(10)
                 .AddChoices(serverChoices));
 
-        if (choice == "? Back")
+        if (choice == "<< Back")
             return;
 
         var idx = serverChoices.IndexOf(choice);
@@ -238,7 +238,7 @@ public class ConfigurationCLI
         }
 
         var serverChoices = servers.Select((s, i) => $"{i + 1}. {s.Name} ({s.GamePath})").ToList();
-        serverChoices.Add("? Back");
+        serverChoices.Add("<< Back");
 
         var choice = AnsiConsole.Prompt(
             new SelectionPrompt<string>()
@@ -246,7 +246,7 @@ public class ConfigurationCLI
                 .PageSize(10)
                 .AddChoices(serverChoices));
 
-        if (choice == "? Back")
+        if (choice == "<< Back")
             return;
 
         var idx = serverChoices.IndexOf(choice);
@@ -255,7 +255,7 @@ public class ConfigurationCLI
             if (AnsiConsole.Confirm($"[red]Remove '{servers[idx].Name}'?[/]"))
             {
                 servers.RemoveAt(idx);
-                AnsiConsole.MarkupLine("[green]? Server removed[/]");
+                AnsiConsole.MarkupLine("[green][[OK]] Server removed[/]");
                 Thread.Sleep(1000);
             }
         }
@@ -315,9 +315,9 @@ public class ConfigurationCLI
             var choice = AnsiConsole.Prompt(
                 new SelectionPrompt<string>()
                     .Title("[yellow]Select notification type:[/]")
-                    .AddChoices("Email Notifications", "? Back"));
+                    .AddChoices("Email Notifications", "<< Back"));
 
-            if (choice == "? Back")
+            if (choice == "<< Back")
                 return;
 
             ConfigureEmailNotifications(settings);
@@ -345,7 +345,7 @@ public class ConfigurationCLI
             settings.Recipient = AnsiConsole.Ask("Recipient [green]Email[/]:", settings.Recipient);
         }
 
-        AnsiConsole.MarkupLine("\n[green]? Email settings saved[/]");
+        AnsiConsole.MarkupLine("\n[green][[OK]] Email settings saved[/]");
         Thread.Sleep(1000);
     }
 
@@ -381,11 +381,11 @@ public class ConfigurationCLI
 
                     provider.Notify("Test Notification", "This is a test email from GameServerManager.");
                     
-                    AnsiConsole.MarkupLine("[green]? Test email sent successfully![/]");
+                    AnsiConsole.MarkupLine("[green][[OK]] Test email sent successfully![/]");
                 }
                 catch (Exception ex)
                 {
-                    AnsiConsole.MarkupLine($"[red]? Failed to send test email: {ex.Message}[/]");
+                    AnsiConsole.MarkupLine($"[red][[X]] Failed to send test email: {ex.Message}[/]");
                 }
             });
 

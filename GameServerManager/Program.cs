@@ -193,7 +193,7 @@ internal class Program
                 break;
             case LogLevel.Warning:
                 logger?.LogWarning(message);
-                _consoleUI?.AddRecentAction($"[yellow]⚠[/] {message}");
+                _consoleUI?.AddRecentAction($"[yellow][!][/] {message}");
                 break;
             case LogLevel.Error:
                 logger?.LogError(message);
@@ -250,7 +250,7 @@ internal class Program
 
         foreach (var error in validationErrors)
         {
-            errorTable.AddRow($"[red]✗[/] {error}");
+            errorTable.AddRow($"[red][X][/] {error}");
         }
 
         AnsiConsole.Write(errorTable);
@@ -264,7 +264,7 @@ internal class Program
             "  • Manually edit [cyan]appsettings.json[/] in the application directory\n" +
             "  • Run [green]GameServerManager --help[/] for more information"
         )
-        .Header("[bold yellow]⚠ Next Steps[/]")
+        .Header("[bold yellow][!] Next Steps[/]")
         .BorderColor(Color.Yellow)
         .Padding(1, 1);
         
@@ -317,7 +317,7 @@ internal class Program
             "  • Run [green]GameServerManager config[/] to recreate the configuration\n" +
             "  • Restore from a backup if available"
         )
-        .Header("[bold yellow]⚠ Troubleshooting[/]")
+        .Header("[bold yellow][!] Troubleshooting[/]")
         .BorderColor(Color.Yellow)
         .Padding(1, 1);
         

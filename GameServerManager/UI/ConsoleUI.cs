@@ -275,7 +275,7 @@ public class ConsoleUI : IAsyncDisposable
     {
         if (_errorQueue.TryPeek(out var lastError))
         {
-            return new Panel($"[red bold]? Error:[/] {lastError}")
+            return new Panel($"[red bold][[!]] Error:[/] {lastError}")
                 .Border(BoxBorder.Rounded)
                 .BorderColor(Color.Red);
         }
