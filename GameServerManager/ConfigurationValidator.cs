@@ -12,8 +12,15 @@ namespace GameServerManager
         {
             fileSystem ??= new FileSystem();
             var errors = new List<string>();
-            if (string.IsNullOrWhiteSpace(settings.SteamCMDPath) || !fileSystem.FileExists(settings.SteamCMDPath))
-                errors.Add($"SteamCMDPath is invalid: {settings.SteamCMDPath}");
+            
+            // Only validate SteamCMDPath if at least one enabled server has AutoUpdate enabled
+            bool anyServerNeedsSteam = settings.GameServers?.Any(s => s.Enabled && s.AutoUpdate) ?? false;
+            if (anyServerNeedsSteam)
+            {
+                if (string.IsNullOrWhiteSpace(settings.SteamCMDPath) || !fileSystem.FileExists(settings.SteamCMDPath))
+                    errors.Add($"SteamCMDPath is invalid or missing: {settings.SteamCMDPath}. Required because at least one server has AutoUpdate enabled.");
+            }
+            
             if (settings.GameServers == null || settings.GameServers.Count == 0)
                 errors.Add("No game servers configured.");
             else
@@ -39,6 +46,11 @@ namespace GameServerManager
             var exePath = Path.Combine(gameServer.GamePath, gameServer.ServerExe);
             if (string.IsNullOrWhiteSpace(gameServer.ServerExe) || !fileSystem.FileExists(exePath))
                 errors.Add($"Server executable not found for {gameServer.Name} at {exePath}");
+            
+            // Only validate SteamAppId if AutoUpdate is enabled
+            if (gameServer.AutoUpdate && string.IsNullOrWhiteSpace(gameServer.SteamAppId))
+                errors.Add($"SteamAppId is required for {gameServer.Name} when AutoUpdate is enabled.");
+            
             if (gameServer.AutoBackup && (string.IsNullOrWhiteSpace(gameServer.AutoBackupSource) || string.IsNullOrWhiteSpace(gameServer.AutoBackupDest)))
                 errors.Add($"Invalid backup source or destination for {gameServer.Name}");
             // Validate update/backup time formats

@@ -106,6 +106,7 @@ namespace GameServerManager
             {
                 FileName = System.IO.Path.Combine(gameServer.GamePath, gameServer.ServerExe),
                 Arguments = gameServer.ServerArgs ?? string.Empty,
+                WorkingDirectory = gameServer.GamePath,
                 UseShellExecute = true,
                 CreateNoWindow = false
             };

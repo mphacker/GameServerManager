@@ -17,6 +17,13 @@ namespace GameServerManager
 
         public async Task<bool> UpdateAsync(GameServer gameServer, string steamCmdPath)
         {
+            // Skip update if SteamAppId is empty (non-Steam game)
+            if (string.IsNullOrWhiteSpace(gameServer.SteamAppId))
+            {
+                Program.LogWithStatus(_logger, LogLevel.Warning, $"Skipping update for {gameServer.Name} - no SteamAppId configured (non-Steam game).");
+                return true;
+            }
+            
             if (!_fileSystem.FileExists(steamCmdPath))
             {
                 Program.LogWithStatus(_logger, LogLevel.Error, $"SteamCMD path does not exist: {steamCmdPath}");
