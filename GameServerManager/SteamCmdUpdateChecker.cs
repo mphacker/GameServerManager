@@ -1,12 +1,9 @@
 using System;
 using System.Diagnostics;
 using System.IO;
-using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using System.Linq;
 using Microsoft.Extensions.Logging;
-using ValveKeyValue;
 
 namespace GameServerManager
 {
@@ -199,47 +196,41 @@ namespace GameServerManager
 
             try
             {
-                var appDataStart = output.IndexOf($"\"{appId}\"");
-                if (appDataStart == -1) return null;
-
-                var appData = output.Substring(appDataStart);
-                var kv = KVSerializer.Create(KVSerializationFormat.KeyValues1Text);
-                using var stream = new MemoryStream(Encoding.UTF8.GetBytes(appData));
+                _logger.LogDebug($"[SteamCMD] Parsing build ID for AppID {appId}");
                 
-                var data = kv.Deserialize(stream);
-                if (data == null) return null;
-
-                var buildIdValue = data["depots"]?["branches"]?["public"]?["buildid"];
-                if (buildIdValue == null)
+                // Verify the app data is in the output
+                if (!output.Contains($"\"{appId}\""))
                 {
-                    _logger.LogWarning("[SteamCMD] Could not navigate to depots/branches/public/buildid");
+                    _logger.LogWarning($"[SteamCMD] AppID {appId} not found in output");
                     return null;
                 }
 
-                if (int.TryParse(buildIdValue.ToString(), out var buildId))
+                // Primary method: Look for buildid in the public branch section
+                // This is more reliable than VDF parsing for extracting a single value
+                var publicBranchMatch = Regex.Match(output, 
+                    @"""public""[^}]*""buildid""\s+""(\d+)""", 
+                    RegexOptions.Singleline);
+                
+                if (publicBranchMatch.Success && int.TryParse(publicBranchMatch.Groups[1].Value, out var buildId))
                 {
-                    _logger.LogDebug($"[SteamCMD] Parsed build ID {buildId}");
+                    _logger.LogDebug($"[SteamCMD] Parsed build ID {buildId} from public branch");
                     return buildId;
                 }
 
+                // Fallback: Look for any buildid (less reliable but covers edge cases)
+                var anyBuildMatch = Regex.Match(output, @"""buildid""\s+""(\d+)""", RegexOptions.Singleline);
+                if (anyBuildMatch.Success && int.TryParse(anyBuildMatch.Groups[1].Value, out buildId))
+                {
+                    _logger.LogDebug($"[SteamCMD] Parsed build ID {buildId} using fallback pattern");
+                    return buildId;
+                }
+
+                _logger.LogWarning("[SteamCMD] Could not find buildid pattern in output");
                 return null;
             }
             catch (Exception ex)
             {
-                _logger.LogError($"[SteamCMD] VDF parsing failed: {ex.Message}");
-                
-                // Regex fallback
-                try
-                {
-                    var match = Regex.Match(output, @"""buildid""\s+""(\d+)""", RegexOptions.Singleline);
-                    if (match.Success && int.TryParse(match.Groups[1].Value, out var buildId))
-                    {
-                        _logger.LogDebug($"[SteamCMD] Parsed build ID {buildId} using regex fallback");
-                        return buildId;
-                    }
-                }
-                catch { }
-                
+                _logger.LogError($"[SteamCMD] Parsing failed: {ex.Message}");
                 return null;
             }
         }
