@@ -240,7 +240,7 @@ internal class Program
                 break;
             case LogLevel.Warning:
                 logger?.LogWarning(message);
-                _consoleUI?.AddRecentAction($"[yellow][!][/] {message}");
+                _consoleUI?.AddRecentAction($"[yellow]⚠[/] {message}");
                 break;
             case LogLevel.Error:
                 logger?.LogError(message);

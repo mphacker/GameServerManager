@@ -20,24 +20,11 @@ public class ConsoleUI : IAsyncDisposable
     /// </summary>
     public void AddRecentAction(string action)
     {
-        // Escape square brackets that aren't Spectre.Console markup
-        // Replace [Check], [OK], [Error], etc. with escaped versions
-        action = action
-            .Replace("[Check]", "[[Check]]")
-            .Replace("[OK]", "[[OK]]")
-            .Replace("[Error]", "[[Error]]")
-            .Replace("[Startup]", "[[Startup]]")
-            .Replace("[UPDATE]", "[[UPDATE]]")
-            .Replace("[Updating]", "[[Updating]]")
-            .Replace("[Backup]", "[[Backup]]")
-            .Replace("[Stop]", "[[Stop]]")
-            .Replace("[Warn]", "[[Warn]]")
-            .Replace("[Start]", "[[Start]]")
-            .Replace("[Wait]", "[[Wait]]")
-            .Replace("[Download]", "[[Download]]")
-            .Replace("[Update]", "[[Update]]")
-            .Replace("[Kill]", "[[Kill]]");
+        // First, escape the entire message to prevent any markup interpretation issues
+        // This must be done BEFORE we add any real markup
+        action = Markup.Escape(action);
         
+        // Now we can safely add our own markup without worrying about the content
         var entry = $"[dim]{DateTime.Now:yyyy-MM-dd HH:mm:ss}[/] {action}";
         _recentActions.Enqueue(entry);
         while (_recentActions.Count > 10)
@@ -50,7 +37,9 @@ public class ConsoleUI : IAsyncDisposable
     public void LogError(string message)
     {
         while (_errorQueue.TryDequeue(out _)) { }
-        var entry = $"[red]{DateTime.Now:yyyy-MM-dd HH:mm:ss}[/] {message}";
+        // Escape the message to prevent markup interpretation issues
+        var escapedMessage = Markup.Escape(message);
+        var entry = $"[red]{DateTime.Now:yyyy-MM-dd HH:mm:ss}[/] {escapedMessage}";
         _errorQueue.Enqueue(entry);
     }
 

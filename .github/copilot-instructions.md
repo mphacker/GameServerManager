@@ -38,6 +38,7 @@
 - **DO NOT** use manual `Console.SetCursorPosition`, `Console.Clear()`, or similar low-level console operations.
 - Use Spectre.Console components: `Table`, `Panel`, `Layout`, `SelectionPrompt`, `TextPrompt`, `Status`, etc.
 - For colors, use Spectre.Console markup (e.g., `[green]text[/]`, `[red bold]error[/]`) or `Color` enum values.
+- **ALWAYS use `Markup.Escape()` on user content or log messages** before adding markup - prevents interpretation of special characters like `[`, `]`, or `-` as markup.
 - UI updates are centralized through `Program.LogWithStatus()` which routes to both file logging and the ConsoleUI.
 - **Dashboard loop must have exception handling** with auto-restart capability on errors.
 
