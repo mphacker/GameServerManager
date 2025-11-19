@@ -14,7 +14,6 @@ public class ConsoleUI : IAsyncDisposable
     private List<GameServer> _gameServers = new();
     private CancellationTokenSource? _cancellationTokenSource;
     private volatile bool _menuRequested = false;
-    public event Func<Task>? MenuRequested;
 
     /// <summary>
     /// Adds a recent action to the activity log (keeps last 10).
