@@ -16,6 +16,11 @@ namespace GameServerManager
         private bool _startupCheckDone = false;
         private bool _disposed = false;
 
+        /// <summary>
+        /// Gets the ServerUpdater instance for this watchdog.
+        /// </summary>
+        public ServerUpdater Updater => _updater;
+
         public Watchdog(GameServer gameServer, string steamCmdPath, ILogger<Watchdog> logger, 
             ILogger<ServerUpdater> updaterLogger, NotificationManager? notificationManager = null,
             int updateCheckIntervalMinutes = 30)

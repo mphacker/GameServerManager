@@ -13,6 +13,8 @@ internal class Program
     private static List<GameServer> _gameServers = new();
     private static ConsoleUI? _consoleUI;
     private static List<IAsyncDisposable> _disposables = new(); // Track all disposables for cleanup
+    private static Dictionary<string, ServerUpdater> _serverUpdaters = new();
+    private static Dictionary<string, Watchdog> _watchdogs = new();
 
     /// <summary>
     /// Application entry point. Handles startup, configuration, DI, and CLI.
@@ -74,8 +76,39 @@ internal class Program
 
         StartWatchdogsAndUpdaters(appSettings, serviceProvider, notificationManager, logger);
 
-        // Start the live dashboard
-        await _consoleUI.StartDashboardAsync(_gameServers);
+        // Create interactive menu
+        var interactiveMenu = new InteractiveMenu(_serverUpdaters, _watchdogs, logger);
+
+        // Start the live dashboard with menu support
+        bool continueRunning = true;
+        while (continueRunning && !cts.Token.IsCancellationRequested)
+        {
+            await _consoleUI.StartDashboardAsync(_gameServers);
+            
+            // Check if menu was requested
+            if (_consoleUI.IsMenuRequested())
+            {
+                continueRunning = await interactiveMenu.ShowMainMenuAsync();
+                
+                if (continueRunning)
+                {
+                    // User chose to return to dashboard, restart it
+                    _consoleUI = new ConsoleUI();
+                    // Re-populate recent actions (optional, or start fresh)
+                    continue;
+                }
+                else
+                {
+                    // User chose to exit
+                    break;
+                }
+            }
+            else
+            {
+                // Dashboard stopped for other reason (probably CTRL+C)
+                break;
+            }
+        }
         
         // Cleanup on exit
         await CleanupAsync(logger);
@@ -408,6 +441,7 @@ internal class Program
                     var watchdog = new Watchdog(gameServer, appSettings.SteamCMDPath, watchdogLogger, updaterLogger, 
                         notificationManager, updateCheckInterval);
                     _disposables.Add(watchdog); // Track for cleanup
+                    _watchdogs[gameServer.Name] = watchdog; // Track by name for menu access
                     watchdog.Start();
                 }
                 else if (gameServer.AutoUpdate || gameServer.AutoBackup)
@@ -416,6 +450,7 @@ internal class Program
                     var updater = new ServerUpdater(gameServer, appSettings.SteamCMDPath, updaterLogger, 
                         notificationManager, updateCheckInterval);
                     _disposables.Add(updater); // Track for cleanup
+                    _serverUpdaters[gameServer.Name] = updater; // Track by name for menu access
                     updater.Start();
                 }
             }

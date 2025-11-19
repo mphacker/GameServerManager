@@ -58,6 +58,11 @@ public class ServerUpdater : IAsyncDisposable
     /// </summary>
     public NotificationManager? NotificationManager { get; set; }
 
+    /// <summary>
+    /// Gets the game server configuration for this updater.
+    /// </summary>
+    public GameServer GameServer => _gameServer;
+
     public ServerUpdater(GameServer gameServer, string steamCmdPath, ILogger<ServerUpdater> logger, 
         NotificationManager? notificationManager = null, int updateCheckIntervalMinutes = 30)
     {
@@ -471,53 +476,116 @@ public class ServerUpdater : IAsyncDisposable
             Program.LogWithStatus(_logger, LogLevel.Information, $"Backup already in progress for {_gameServer.Name}...");
             return false;
         }
+        
         Program.LogWithStatus(_logger, LogLevel.Information, $"[Backup] Backing up {_gameServer.Name}...");
+        
+        bool needToRestartServer = false;
+        bool serverWasStopped = false;
+        
         try
         {
-            bool needToRestartServer = false;
-            // Stop process if running, unless BackupWithoutShutdown is true
+            // Check if process is running and stop it if BackupWithoutShutdown is false
             if (!_gameServer.BackupWithoutShutdown && await _processManager.IsProcessRunningAsync(_gameServer.ProcessName))
             {
                 needToRestartServer = true;
                 Program.LogWithStatus(_logger, LogLevel.Information, $"Process for {_gameServer.Name} is running. Stopping server.");
-                await _processManager.StopProcessAsync(_gameServer.ProcessName);
+                
+                // Attempt graceful shutdown
+                bool gracefulShutdown = await _processManager.StopProcessAsync(_gameServer.ProcessName);
+                
+                if (!gracefulShutdown)
+                {
+                    // Force kill if graceful shutdown failed
+                    Program.LogWithStatus(_logger, LogLevel.Warning, $"[Warn] Graceful shutdown failed for {_gameServer.Name}. Force killing process...");
+                    await _processManager.KillProcessAsync(_gameServer.ProcessName);
+                    
+                    // Wait a few seconds to ensure process is fully terminated
+                    await Task.Delay(TimeSpan.FromSeconds(5));
+                }
+                
+                serverWasStopped = true;
             }
-            // Backup
+            
+            // Perform backup
             if (_gameServer.AutoBackup)
             {
-                var backupResult = await _backupService.BackupAsync(_gameServer);
+                bool backupResult = false;
+                
+                try
+                {
+                    backupResult = await _backupService.BackupAsync(_gameServer);
+                }
+                catch (Exception backupEx)
+                {
+                    Program.LogWithStatus(_logger, LogLevel.Error, $"[Error] Backup exception for {_gameServer.Name}: {backupEx.Message}");
+                    NotificationManager?.NotifyError($"Backup exception for {_gameServer.Name}", backupEx.ToString());
+                    backupResult = false;
+                }
+                
                 if (!backupResult)
                 {
                     Program.LogWithStatus(_logger, LogLevel.Error, $"Backup failed for {_gameServer.Name}");
                     NotificationManager?.NotifyError($"Backup failed for {_gameServer.Name}", $"Backup failed for {_gameServer.Name}.");
-                    return false;
+                    
+                    // Don't return false yet - we need to restart the server in the finally block
                 }
-                // Persist last backup date
-                _lastBackupDate = DateTime.Now;
-                _gameServer.LastBackupDate = _lastBackupDate;
-                AppSettingsHelper.UpdateServerLastDates(_gameServer.Name, null, _lastBackupDate);
+                else
+                {
+                    // Update last backup date only on success
+                    _lastBackupDate = DateTime.Now;
+                    _gameServer.LastBackupDate = _lastBackupDate;
+                    AppSettingsHelper.UpdateServerLastDates(_gameServer.Name, null, _lastBackupDate);
+                    Program.LogWithStatus(_logger, LogLevel.Information, $"[OK] Backup completed for {_gameServer.Name}");
+                }
+                
+                return backupResult;
             }
-            // Restart
-            if (needToRestartServer)
-            {
-                Program.LogWithStatus(_logger, LogLevel.Information, $"Restarting process for {_gameServer.Name}");
-                await _processManager.StartProcessAsync(_gameServer);
-                Program.LogWithStatus(_logger, LogLevel.Information, $"Waiting 30 seconds for {_gameServer.Name} to start.");
-                await Task.Delay(TimeSpan.FromSeconds(30));
-            }
-            Program.LogWithStatus(_logger, LogLevel.Information, $"[OK] Backup completed for {_gameServer.Name}");
+            
             return true;
         }
         catch (Exception ex)
         {
             Program.LogWithStatus(_logger, LogLevel.Error, $"Backup error for {_gameServer.Name}: {ex.Message}");
+            _logger.LogError(ex, $"Backup exception details for {_gameServer.Name}");
             NotificationManager?.NotifyError($"Exception backing up {_gameServer.Name}", ex.ToString());
             return false;
         }
         finally
         {
+            // ALWAYS restart server if it was stopped, regardless of backup success/failure
+            if (needToRestartServer && serverWasStopped)
+            {
+                try
+                {
+                    Program.LogWithStatus(_logger, LogLevel.Information, $"Restarting process for {_gameServer.Name}");
+                    await _processManager.StartProcessAsync(_gameServer);
+                    Program.LogWithStatus(_logger, LogLevel.Information, $"Waiting 30 seconds for {_gameServer.Name} to start.");
+                    await Task.Delay(TimeSpan.FromSeconds(30));
+                }
+                catch (Exception restartEx)
+                {
+                    Program.LogWithStatus(_logger, LogLevel.Error, $"[Error] Failed to restart {_gameServer.Name}: {restartEx.Message}");
+                    NotificationManager?.NotifyError($"Failed to restart {_gameServer.Name}", restartEx.ToString());
+                }
+            }
+            
             Interlocked.Exchange(ref _updateInProgress, 0);
         }
+    }
+
+    /// <summary>
+    /// Forces an immediate update check, bypassing the normal schedule.
+    /// </summary>
+    public async Task ForceUpdateCheckNowAsync()
+    {
+        if (_updateChecker == null)
+        {
+            Program.LogWithStatus(_logger, LogLevel.Warning, $"Update checker not available for {_gameServer.Name}");
+            return;
+        }
+
+        Program.LogWithStatus(_logger, LogLevel.Information, $"[Manual] Forcing update check for {_gameServer.Name}");
+        await CheckForUpdatesAsync(forceCheck: true);
     }
 
     /// <inheritdoc/>

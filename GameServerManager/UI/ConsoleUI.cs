@@ -13,6 +13,8 @@ public class ConsoleUI : IAsyncDisposable
     private readonly ConcurrentQueue<string> _errorQueue = new();
     private List<GameServer> _gameServers = new();
     private CancellationTokenSource? _cancellationTokenSource;
+    private volatile bool _menuRequested = false;
+    public event Func<Task>? MenuRequested;
 
     /// <summary>
     /// Adds a recent action to the activity log (keeps last 10).
@@ -63,6 +65,9 @@ public class ConsoleUI : IAsyncDisposable
 
         Console.Clear();
         
+        // Start keyboard listener task
+        var keyboardTask = Task.Run(() => ListenForKeyboard());
+        
         await AnsiConsole.Live(CreateDashboard())
             .AutoClear(false)
             .StartAsync(async ctx =>
@@ -80,6 +85,33 @@ public class ConsoleUI : IAsyncDisposable
                     }
                 }
             });
+    }
+
+    /// <summary>
+    /// Listens for keyboard input in a background task.
+    /// </summary>
+    private void ListenForKeyboard()
+    {
+        while (_cancellationTokenSource != null && !_cancellationTokenSource.Token.IsCancellationRequested)
+        {
+            try
+            {
+                if (Console.KeyAvailable)
+                {
+                    var key = Console.ReadKey(true);
+                    if (key.Key == ConsoleKey.M)
+                    {
+                        RequestMenu();
+                    }
+                }
+                Thread.Sleep(100);
+            }
+            catch
+            {
+                // Ignore errors during shutdown
+                break;
+            }
+        }
     }
 
     /// <summary>
@@ -138,7 +170,7 @@ public class ConsoleUI : IAsyncDisposable
     private Panel CreateHeader()
     {
         var headerContent = new Rows(
-            new Markup("[cyan bold]Game Server Manager[/] | Press [yellow]CTRL+C[/] to exit"),
+            new Markup("[cyan bold]Game Server Manager[/] | Press [yellow]CTRL+C[/] to exit | Press [yellow]M[/] for menu"),
             new Markup("[dim]Flags: [green]R[/]=Restart [yellow]U[/]=Update [blue]B[/]=Backup[/]")
         );
         
@@ -415,5 +447,27 @@ public class ConsoleUI : IAsyncDisposable
         _cancellationTokenSource?.Cancel();
         _cancellationTokenSource?.Dispose();
         await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Requests the menu to be shown (sets a flag that the dashboard loop will detect).
+    /// </summary>
+    public void RequestMenu()
+    {
+        _menuRequested = true;
+        StopDashboard();
+    }
+
+    /// <summary>
+    /// Checks if menu was requested and resets the flag.
+    /// </summary>
+    public bool IsMenuRequested()
+    {
+        if (_menuRequested)
+        {
+            _menuRequested = false;
+            return true;
+        }
+        return false;
     }
 }
