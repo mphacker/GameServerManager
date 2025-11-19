@@ -53,58 +53,89 @@ namespace GameServerManager
 
         private async Task CheckProcessAsync()
         {
-            // On first check after startup, trigger immediate backup if needed
-            if (!_startupCheckDone)
+            try
             {
-                _startupCheckDone = true;
-                if (_gameServer.AutoBackup && !_gameServer.LastBackupDate.HasValue)
+                // On first check after startup, trigger immediate backup if needed
+                if (!_startupCheckDone)
                 {
-                    await _updater.BackupServerAsync();
+                    _startupCheckDone = true;
+                    if (_gameServer.AutoBackup && !_gameServer.LastBackupDate.HasValue)
+                    {
+                        await _updater.BackupServerAsync();
+                    }
+                }
+                
+                Program.LogWithStatus(_logger, LogLevel.Information, $"Checking process for {_gameServer.Name}");
+                
+                // Check for backups
+                if (_gameServer.AutoBackup)
+                {
+                    if (await _updater.IsTimeToBackupServerAsync())
+                    {
+                        await _updater.BackupServerAsync();
+                    }
+                }
+                
+                if (_updater.UpdateInProgress || _updater.IsCheckingForUpdate)
+                {
+                    Program.LogWithStatus(_logger, LogLevel.Information, $"Update or backup in progress for {_gameServer.Name}. Skipping process check.");
+                    return;
+                }
+                
+                var process = System.Diagnostics.Process.GetProcessesByName(_gameServer.ProcessName).FirstOrDefault();
+                if (process == null || process.HasExited)
+                {
+                    Program.LogWithStatus(_logger, LogLevel.Warning, $"Process for {_gameServer.Name} not found. Restarting...");
+                    StartGameServer();
+                }
+                else
+                {
+                    Program.LogWithStatus(_logger, LogLevel.Information, $"Process for {_gameServer.Name} is running.");
                 }
             }
-            
-            Program.LogWithStatus(_logger, LogLevel.Information, $"Checking process for {_gameServer.Name}");
-            
-            // Check for backups
-            if (_gameServer.AutoBackup)
+            catch (Exception ex)
             {
-                if (await _updater.IsTimeToBackupServerAsync())
-                {
-                    await _updater.BackupServerAsync();
-                }
-            }
-            
-            if (_updater.UpdateInProgress || _updater.IsCheckingForUpdate)
-            {
-                Program.LogWithStatus(_logger, LogLevel.Information, $"Update or backup in progress for {_gameServer.Name}. Skipping process check.");
-                return;
-            }
-            
-            var process = System.Diagnostics.Process.GetProcessesByName(_gameServer.ProcessName).FirstOrDefault();
-            if (process == null || process.HasExited)
-            {
-                Program.LogWithStatus(_logger, LogLevel.Warning, $"Process for {_gameServer.Name} not found. Restarting...");
-                StartGameServer();
-            }
-            else
-            {
-                Program.LogWithStatus(_logger, LogLevel.Information, $"Process for {_gameServer.Name} is running.");
+                _logger.LogError(ex, $"Unhandled exception in process check for {_gameServer.Name}: {ex.Message}");
             }
         }
 
         private void StartGameServer()
         {
-            Program.LogWithStatus(_logger, LogLevel.Information, $"Watchdog is restarting process for {_gameServer.Name}");
             try
             {
+                Program.LogWithStatus(_logger, LogLevel.Information, $"Watchdog is restarting process for {_gameServer.Name}");
+                
+                if (string.IsNullOrWhiteSpace(_gameServer.GamePath))
+                {
+                    Program.LogWithStatus(_logger, LogLevel.Error, $"GamePath is null or empty for {_gameServer.Name}. Cannot start server.");
+                    _notificationManager?.NotifyError($"Cannot start {_gameServer.Name}", "GamePath is not configured.");
+                    return;
+                }
+                
+                if (string.IsNullOrWhiteSpace(_gameServer.ServerExe))
+                {
+                    Program.LogWithStatus(_logger, LogLevel.Error, $"ServerExe is null or empty for {_gameServer.Name}. Cannot start server.");
+                    _notificationManager?.NotifyError($"Cannot start {_gameServer.Name}", "ServerExe is not configured.");
+                    return;
+                }
+                
+                var exePath = System.IO.Path.Combine(_gameServer.GamePath, _gameServer.ServerExe);
+                if (!System.IO.File.Exists(exePath))
+                {
+                    Program.LogWithStatus(_logger, LogLevel.Error, $"Server executable not found at {exePath}");
+                    _notificationManager?.NotifyError($"Cannot start {_gameServer.Name}", $"Executable not found: {exePath}");
+                    return;
+                }
+                
                 var startInfo = new System.Diagnostics.ProcessStartInfo
                 {
-                    FileName = System.IO.Path.Combine(_gameServer.GamePath, _gameServer.ServerExe),
-                    Arguments = _gameServer.ServerArgs,
+                    FileName = exePath,
+                    Arguments = _gameServer.ServerArgs ?? string.Empty,
                     WorkingDirectory = _gameServer.GamePath,
                     UseShellExecute = true,
                     CreateNoWindow = false
                 };
+                
                 using (var process = new System.Diagnostics.Process())
                 {
                     process.StartInfo = startInfo;
@@ -112,10 +143,21 @@ namespace GameServerManager
                     Program.LogWithStatus(_logger, LogLevel.Information, $"Process for {_gameServer.Name} started.");
                 }
             }
+            catch (System.ComponentModel.Win32Exception w32Ex)
+            {
+                Program.LogWithStatus(_logger, LogLevel.Error, $"Win32 error starting {_gameServer.Name}: {w32Ex.Message}");
+                _notificationManager?.NotifyError($"Error starting {_gameServer.Name}", $"Win32 error: {w32Ex.Message}");
+            }
+            catch (System.IO.IOException ioEx)
+            {
+                Program.LogWithStatus(_logger, LogLevel.Error, $"IO error starting {_gameServer.Name}: {ioEx.Message}");
+                _notificationManager?.NotifyError($"Error starting {_gameServer.Name}", $"IO error: {ioEx.Message}");
+            }
             catch (Exception ex)
             {
-                Program.LogWithStatus(_logger, LogLevel.Error, $"Error starting or restarting {_gameServer.Name}: {ex.Message}");
-                _notificationManager?.NotifyError($"Error starting/restarting {_gameServer.Name}", ex.ToString());
+                Program.LogWithStatus(_logger, LogLevel.Error, $"Unexpected error starting {_gameServer.Name}: {ex.Message}");
+                _logger.LogError(ex, $"Full exception details for {_gameServer.Name}");
+                _notificationManager?.NotifyError($"Error starting {_gameServer.Name}", ex.ToString());
             }
         }
 

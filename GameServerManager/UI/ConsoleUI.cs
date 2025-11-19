@@ -91,25 +91,37 @@ public class ConsoleUI : IAsyncDisposable
     /// </summary>
     private void ListenForKeyboard()
     {
-        while (_cancellationTokenSource != null && !_cancellationTokenSource.Token.IsCancellationRequested)
+        try
         {
-            try
+            while (_cancellationTokenSource != null && !_cancellationTokenSource.Token.IsCancellationRequested)
             {
-                if (Console.KeyAvailable)
+                try
                 {
-                    var key = Console.ReadKey(true);
-                    if (key.Key == ConsoleKey.M)
+                    if (Console.KeyAvailable)
                     {
-                        RequestMenu();
+                        var key = Console.ReadKey(true);
+                        if (key.Key == ConsoleKey.M)
+                        {
+                            RequestMenu();
+                        }
                     }
+                    Thread.Sleep(100);
                 }
-                Thread.Sleep(100);
+                catch (InvalidOperationException)
+                {
+                    // Console input is redirected or not available, stop listening
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    Serilog.Log.Debug(ex, "Error in keyboard listener: {Message}", ex.Message);
+                    Thread.Sleep(1000); // Back off on error
+                }
             }
-            catch
-            {
-                // Ignore errors during shutdown
-                break;
-            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "Fatal error in keyboard listener: {Message}", ex.Message);
         }
     }
 
@@ -123,47 +135,61 @@ public class ConsoleUI : IAsyncDisposable
 
     private Layout CreateDashboard()
     {
-        // Calculate available space for dynamic content
-        var consoleHeight = Console.WindowHeight;
-        var headerHeight = 3;
-        var hasError = _errorQueue.TryPeek(out _);
-        var errorHeight = hasError ? 3 : 0;
-        
-        var enabledServersCount = _gameServers.Count(s => s.Enabled);
-        var estimatedServerHeight = Math.Max(5, enabledServersCount + 4); // Table header + borders + rows
-        
-        // Calculate remaining space for activity
-        var usedHeight = headerHeight + estimatedServerHeight + errorHeight;
-        var remainingHeight = Math.Max(7, consoleHeight - usedHeight - 1); // -1 for buffer
-        var maxActivityLines = Math.Max(3, Math.Min(10, remainingHeight - 3)); // -3 for panel borders/header
-        
-        // Build a vertical stack of panels
-        var panels = new List<IRenderable>
+        try
         {
-            CreateHeader(),
-            CreateServersPanel(),
-            CreateActivityPanel(maxActivityLines)
-        };
-        
-        if (hasError)
-        {
-            panels.Add(CreateErrorPanel());
+            // Calculate available space for dynamic content
+            var consoleHeight = Console.WindowHeight;
+            var headerHeight = 3;
+            var hasError = _errorQueue.TryPeek(out _);
+            var errorHeight = hasError ? 3 : 0;
+            
+            var enabledServersCount = _gameServers.Count(s => s.Enabled);
+            var estimatedServerHeight = Math.Max(5, enabledServersCount + 4); // Table header + borders + rows
+            
+            // Calculate remaining space for activity
+            var usedHeight = headerHeight + estimatedServerHeight + errorHeight;
+            var remainingHeight = Math.Max(7, consoleHeight - usedHeight - 1); // -1 for buffer
+            var maxActivityLines = Math.Max(3, Math.Min(10, remainingHeight - 3)); // -3 for panel borders/header
+            
+            // Build a vertical stack of panels
+            var panels = new List<IRenderable>
+            {
+                CreateHeader(),
+                CreateServersPanel(),
+                CreateActivityPanel(maxActivityLines)
+            };
+            
+            if (hasError)
+            {
+                panels.Add(CreateErrorPanel());
+            }
+            
+            // Create a grid to stack panels vertically
+            var grid = new Grid()
+                .AddColumn(new GridColumn().NoWrap().PadLeft(0).PadRight(0));
+            
+            foreach (var panel in panels)
+            {
+                grid.AddRow(panel);
+            }
+            
+            // Wrap in a single layout
+            var layout = new Layout("Root");
+            layout.Update(grid);
+            
+            return layout;
         }
-        
-        // Create a grid to stack panels vertically
-        var grid = new Grid()
-            .AddColumn(new GridColumn().NoWrap().PadLeft(0).PadRight(0));
-        
-        foreach (var panel in panels)
+        catch (Exception ex)
         {
-            grid.AddRow(panel);
+            Serilog.Log.Error(ex, "Error creating dashboard: {Message}", ex.Message);
+            
+            // Return a minimal error display
+            var errorLayout = new Layout("Root");
+            errorLayout.Update(new Panel($"[red]Dashboard Error: {ex.Message}[/]")
+                .Border(BoxBorder.Rounded)
+                .BorderColor(Color.Red));
+            return errorLayout;
         }
-        
-        // Wrap in a single layout
-        var layout = new Layout("Root");
-        layout.Update(grid);
-        
-        return layout;
     }
 
     private Panel CreateHeader()

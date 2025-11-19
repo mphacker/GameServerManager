@@ -64,9 +64,18 @@ namespace GameServerManager
         {
             if (string.IsNullOrWhiteSpace(processName))
                 return false;
-            return await Task.Run(() =>
-                _processWrapper.GetProcessesByName(processName).Any(p => !p.HasExited)
-            );
+            
+            try
+            {
+                return await Task.Run(() =>
+                    _processWrapper.GetProcessesByName(processName).Any(p => !p.HasExited)
+                );
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error checking if process {processName} is running: {ex.Message}");
+                return false;
+            }
         }
 
         public async Task<bool> StopProcessAsync(string processName)
@@ -74,12 +83,12 @@ namespace GameServerManager
             if (string.IsNullOrWhiteSpace(processName))
                 return false;
 
-            var process = _processWrapper.GetProcessesByName(processName).FirstOrDefault();
-            if (process == null || process.HasExited)
-                return true; // Already stopped
-
             try
             {
+                var process = _processWrapper.GetProcessesByName(processName).FirstOrDefault();
+                if (process == null || process.HasExited)
+                    return true; // Already stopped
+
                 _logger.LogInformation($"Attempting graceful shutdown of {processName}...");
                 process.CloseMainWindow();
 
@@ -101,9 +110,20 @@ namespace GameServerManager
                     return false; // Could not stop gracefully
                 }
             }
+            catch (InvalidOperationException ioEx)
+            {
+                Program.LogWithStatus(_logger, LogLevel.Error, $"[Error] Invalid operation stopping process {processName}: {ioEx.Message}");
+                return false;
+            }
+            catch (System.ComponentModel.Win32Exception w32Ex)
+            {
+                Program.LogWithStatus(_logger, LogLevel.Error, $"[Error] Win32 error stopping process {processName}: {w32Ex.Message}");
+                return false;
+            }
             catch (Exception ex)
             {
-                Program.LogWithStatus(_logger, LogLevel.Error, $"[Error] Error stopping process {processName}: {ex.Message}");
+                Program.LogWithStatus(_logger, LogLevel.Error, $"[Error] Unexpected error stopping process {processName}: {ex.Message}");
+                _logger.LogError(ex, $"Full exception details for stopping {processName}");
                 return false;
             }
         }
@@ -113,43 +133,83 @@ namespace GameServerManager
             if (string.IsNullOrWhiteSpace(processName))
                 return;
 
-            var process = _processWrapper.GetProcessesByName(processName).FirstOrDefault();
-            if (process == null || process.HasExited)
-                return; // Already dead
-
             try
             {
+                var process = _processWrapper.GetProcessesByName(processName).FirstOrDefault();
+                if (process == null || process.HasExited)
+                    return; // Already dead
+
                 Program.LogWithStatus(_logger, LogLevel.Warning, $"[Kill] Forcefully terminating {processName}...");
                 await Task.Run(() => process.Kill());
                 Program.LogWithStatus(_logger, LogLevel.Information, $"[OK] Process {processName} terminated.");
             }
+            catch (InvalidOperationException ioEx)
+            {
+                Program.LogWithStatus(_logger, LogLevel.Error, $"[Error] Process {processName} already exited: {ioEx.Message}");
+            }
+            catch (System.ComponentModel.Win32Exception w32Ex)
+            {
+                Program.LogWithStatus(_logger, LogLevel.Error, $"[Error] Win32 error killing process {processName}: {w32Ex.Message}");
+            }
             catch (Exception ex)
             {
-                Program.LogWithStatus(_logger, LogLevel.Error, $"[Error] Error killing process {processName}: {ex.Message}");
+                Program.LogWithStatus(_logger, LogLevel.Error, $"[Error] Unexpected error killing process {processName}: {ex.Message}");
+                _logger.LogError(ex, $"Full exception details for killing {processName}");
             }
         }
 
         public async Task StartProcessAsync(GameServer gameServer)
         {
-            if (gameServer == null)
-                throw new ArgumentNullException(nameof(gameServer));
-            if (string.IsNullOrWhiteSpace(gameServer.GamePath) || string.IsNullOrWhiteSpace(gameServer.ServerExe))
+            try
             {
-                Program.LogWithStatus(_logger, LogLevel.Error, $"GamePath or ServerExe is null or empty for {gameServer?.Name}");
-                return;
+                if (gameServer == null)
+                {
+                    _logger.LogError("GameServer parameter is null in StartProcessAsync");
+                    return;
+                }
+                
+                if (string.IsNullOrWhiteSpace(gameServer.GamePath) || string.IsNullOrWhiteSpace(gameServer.ServerExe))
+                {
+                    Program.LogWithStatus(_logger, LogLevel.Error, $"GamePath or ServerExe is null or empty for {gameServer?.Name}");
+                    return;
+                }
+                
+                var exePath = System.IO.Path.Combine(gameServer.GamePath, gameServer.ServerExe);
+                if (!System.IO.File.Exists(exePath))
+                {
+                    Program.LogWithStatus(_logger, LogLevel.Error, $"Server executable not found at {exePath} for {gameServer.Name}");
+                    return;
+                }
+                
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = exePath,
+                    Arguments = gameServer.ServerArgs ?? string.Empty,
+                    WorkingDirectory = gameServer.GamePath,
+                    UseShellExecute = true,
+                    CreateNoWindow = false
+                };
+                
+                await Task.Run(() =>
+                {
+                    _processWrapper.StartProcess(startInfo);
+                });
+                
+                Program.LogWithStatus(_logger, LogLevel.Information, $"Started process for {gameServer.Name}");
             }
-            var startInfo = new ProcessStartInfo
+            catch (System.ComponentModel.Win32Exception w32Ex)
             {
-                FileName = System.IO.Path.Combine(gameServer.GamePath, gameServer.ServerExe),
-                Arguments = gameServer.ServerArgs ?? string.Empty,
-                WorkingDirectory = gameServer.GamePath,
-                UseShellExecute = true,
-                CreateNoWindow = false
-            };
-            await Task.Run(() =>
+                Program.LogWithStatus(_logger, LogLevel.Error, $"Win32 error starting {gameServer?.Name}: {w32Ex.Message}");
+            }
+            catch (System.IO.FileNotFoundException fnfEx)
             {
-                _processWrapper.StartProcess(startInfo);
-            });
+                Program.LogWithStatus(_logger, LogLevel.Error, $"File not found starting {gameServer?.Name}: {fnfEx.Message}");
+            }
+            catch (Exception ex)
+            {
+                Program.LogWithStatus(_logger, LogLevel.Error, $"Unexpected error starting {gameServer?.Name}: {ex.Message}");
+                _logger.LogError(ex, $"Full exception details for starting {gameServer?.Name}");
+            }
         }
     }
 }

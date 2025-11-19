@@ -57,7 +57,7 @@ internal class Program
         CleanGamePaths(appSettings, logger);
         LogConfiguredServers(appSettings, logger);
 
-        // Initialize Spectre.Console UI
+        // Initialize Spectre.Pageable UI
         _consoleUI = new ConsoleUI();
         
         // Set up cancellation for graceful shutdown
@@ -83,30 +83,44 @@ internal class Program
         bool continueRunning = true;
         while (continueRunning && !cts.Token.IsCancellationRequested)
         {
-            await _consoleUI.StartDashboardAsync(_gameServers);
-            
-            // Check if menu was requested
-            if (_consoleUI.IsMenuRequested())
+            try
             {
-                continueRunning = await interactiveMenu.ShowMainMenuAsync();
+                await _consoleUI.StartDashboardAsync(_gameServers);
                 
-                if (continueRunning)
+                // Check if menu was requested
+                if (_consoleUI.IsMenuRequested())
                 {
-                    // User chose to return to dashboard, restart it
-                    _consoleUI = new ConsoleUI();
-                    // Re-populate recent actions (optional, or start fresh)
-                    continue;
+                    continueRunning = await interactiveMenu.ShowMainMenuAsync();
+                    
+                    if (continueRunning)
+                    {
+                        // User chose to return to dashboard, restart it
+                        _consoleUI = new ConsoleUI();
+                        // Re-populate recent actions (optional, or start fresh)
+                        continue;
+                    }
+                    else
+                    {
+                        // User chose to exit
+                        break;
+                    }
                 }
                 else
                 {
-                    // User chose to exit
+                    // Dashboard stopped for other reason (probably CTRL+C)
                     break;
                 }
             }
-            else
+            catch (Exception ex)
             {
-                // Dashboard stopped for other reason (probably CTRL+C)
-                break;
+                logger.LogError(ex, $"Error in main dashboard loop: {ex.Message}");
+                LogWithStatus(logger, LogLevel.Error, $"Dashboard error: {ex.Message}. Restarting...");
+                
+                // Wait a bit before retrying
+                await Task.Delay(5000);
+                
+                // Recreate UI
+                _consoleUI = new ConsoleUI();
             }
         }
         
@@ -426,33 +440,46 @@ internal class Program
             $"Update check interval: {updateCheckInterval} minutes");
         
         if (appSettings.GameServers != null)
+        {
             foreach (var gameServer in appSettings.GameServers)
             {
-                if (!gameServer.Enabled)
+                try
                 {
-                    logger.LogInformation($"Skipping disabled server: {gameServer.Name}");
-                    continue;
-                }
+                    if (!gameServer.Enabled)
+                    {
+                        logger.LogInformation($"Skipping disabled server: {gameServer.Name}");
+                        continue;
+                    }
 
-                if (gameServer.AutoRestart)
-                {
-                    var watchdogLogger = serviceProvider.GetRequiredService<ILogger<Watchdog>>();
-                    var updaterLogger = serviceProvider.GetRequiredService<ILogger<ServerUpdater>>();
-                    var watchdog = new Watchdog(gameServer, appSettings.SteamCMDPath, watchdogLogger, updaterLogger, 
-                        notificationManager, updateCheckInterval);
-                    _disposables.Add(watchdog); // Track for cleanup
-                    _watchdogs[gameServer.Name] = watchdog; // Track by name for menu access
-                    watchdog.Start();
+                    if (gameServer.AutoRestart)
+                    {
+                        var watchdogLogger = serviceProvider.GetRequiredService<ILogger<Watchdog>>();
+                        var updaterLogger = serviceProvider.GetRequiredService<ILogger<ServerUpdater>>();
+                        var watchdog = new Watchdog(gameServer, appSettings.SteamCMDPath, watchdogLogger, updaterLogger, 
+                            notificationManager, updateCheckInterval);
+                        _disposables.Add(watchdog); // Track for cleanup
+                        _watchdogs[gameServer.Name] = watchdog; // Track by name for menu access
+                        watchdog.Start();
+                        logger.LogInformation($"Started watchdog for {gameServer.Name}");
+                    }
+                    else if (gameServer.AutoUpdate || gameServer.AutoBackup)
+                    {
+                        var updaterLogger = serviceProvider.GetRequiredService<ILogger<ServerUpdater>>();
+                        var updater = new ServerUpdater(gameServer, appSettings.SteamCMDPath, updaterLogger, 
+                            notificationManager, updateCheckInterval);
+                        _disposables.Add(updater); // Track for cleanup
+                        _serverUpdaters[gameServer.Name] = updater; // Track by name for menu access
+                        updater.Start();
+                        logger.LogInformation($"Started updater for {gameServer.Name}");
+                    }
                 }
-                else if (gameServer.AutoUpdate || gameServer.AutoBackup)
+                catch (Exception ex)
                 {
-                    var updaterLogger = serviceProvider.GetRequiredService<ILogger<ServerUpdater>>();
-                    var updater = new ServerUpdater(gameServer, appSettings.SteamCMDPath, updaterLogger, 
-                        notificationManager, updateCheckInterval);
-                    _disposables.Add(updater); // Track for cleanup
-                    _serverUpdaters[gameServer.Name] = updater; // Track by name for menu access
-                    updater.Start();
+                    logger.LogError(ex, $"Failed to start watchdog/updater for {gameServer?.Name}: {ex.Message}");
+                    LogWithStatus(logger, LogLevel.Error, $"Failed to initialize {gameServer?.Name}. Check logs for details.");
+                    // Continue with other servers
                 }
             }
+        }
     }
 }

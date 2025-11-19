@@ -128,42 +128,49 @@ public class ServerUpdater : IAsyncDisposable
     /// </summary>
     private async Task PeriodicCheckAsync()
     {
-        // Update the next check time on the GameServer object for UI display
-        if (_updateChecker != null)
+        try
         {
-            _gameServer.NextUpdateCheck = _updateChecker.NextCheckTime;
-        }
-
-        // Perform startup check immediately (first run only)
-        if (!_hasPerformedStartupCheck && _updateChecker != null && !UpdateInProgress && !IsCheckingForUpdate)
-        {
-            _hasPerformedStartupCheck = true;
-            Program.LogWithStatus(_logger, LogLevel.Information, $"[Startup] Performing startup build check for {_gameServer.Name}");
-            await CheckForUpdatesAsync(forceCheck: true);
-            return; // Exit after startup check to avoid running regular check in same cycle
-        }
-
-        // Check for updates (if enabled, not in progress, and enough time has passed)
-        if (_updateChecker != null && !UpdateInProgress && !IsCheckingForUpdate && _updateChecker.CanCheckNow)
-        {
-            await CheckForUpdatesAsync();
-        }
-
-        // Check for scheduled backups
-        if (!UpdateInProgress && !IsCheckingForUpdate)
-        {
-            if (_pendingBackup)
+            // Update the next check time on the GameServer object for UI display
+            if (_updateChecker != null)
             {
-                _logger.LogInformation("Pending backup for {ServerName} is being processed.", _gameServer.Name);
-                _pendingBackup = false;
-                await BackupServerAsync();
-                return;
+                _gameServer.NextUpdateCheck = _updateChecker.NextCheckTime;
             }
 
-            if (await IsTimeToBackupServerAsync())
+            // Perform startup check immediately (first run only)
+            if (!_hasPerformedStartupCheck && _updateChecker != null && !UpdateInProgress && !IsCheckingForUpdate)
             {
-                await BackupServerAsync();
+                _hasPerformedStartupCheck = true;
+                Program.LogWithStatus(_logger, LogLevel.Information, $"[Startup] Performing startup build check for {_gameServer.Name}");
+                await CheckForUpdatesAsync(forceCheck: true);
+                return; // Exit after startup check to avoid running regular check in same cycle
             }
+
+            // Check for updates (if enabled, not in progress, and enough time has passed)
+            if (_updateChecker != null && !UpdateInProgress && !IsCheckingForUpdate && _updateChecker.CanCheckNow)
+            {
+                await CheckForUpdatesAsync();
+            }
+
+            // Check for scheduled backups
+            if (!UpdateInProgress && !IsCheckingForUpdate)
+            {
+                if (_pendingBackup)
+                {
+                    _logger.LogInformation("Pending backup for {ServerName} is being processed.", _gameServer.Name);
+                    _pendingBackup = false;
+                    await BackupServerAsync();
+                    return;
+                }
+
+                if (await IsTimeToBackupServerAsync())
+                {
+                    await BackupServerAsync();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Unhandled exception in periodic check for {_gameServer.Name}: {ex.Message}");
         }
     }
 

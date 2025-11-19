@@ -78,54 +78,206 @@ namespace GameServerManager
 
         public static void UpdateServerLastDates(string serverName, DateTime? lastUpdate, DateTime? lastBackup)
         {
-            if (!File.Exists(ConfigPath)) return;
-            var json = File.ReadAllText(ConfigPath);
-            var settings = JsonSerializer.Deserialize<Settings>(json, ReadOptions) ?? new Settings();
-            if (settings.GameServers == null) return;
-            var server = settings.GameServers.FirstOrDefault(s => s.Name == serverName);
-            if (server == null) return;
-            if (lastUpdate.HasValue)
-                server.LastUpdateDate = lastUpdate;
-            if (lastBackup.HasValue)
-                server.LastBackupDate = lastBackup;
-            File.WriteAllText(ConfigPath, JsonSerializer.Serialize(settings, WriteOptions));
+            try
+            {
+                if (!File.Exists(ConfigPath))
+                {
+                    Serilog.Log.Warning($"AppSettings file not found at {ConfigPath}. Cannot update server dates for {serverName}.");
+                    return;
+                }
+                
+                var json = File.ReadAllText(ConfigPath);
+                var settings = JsonSerializer.Deserialize<Settings>(json, ReadOptions);
+                
+                if (settings?.GameServers == null)
+                {
+                    Serilog.Log.Warning($"No game servers found in settings. Cannot update dates for {serverName}.");
+                    return;
+                }
+                
+                var server = settings.GameServers.FirstOrDefault(s => s.Name == serverName);
+                if (server == null)
+                {
+                    Serilog.Log.Warning($"Server {serverName} not found in settings. Cannot update dates.");
+                    return;
+                }
+                
+                if (lastUpdate.HasValue)
+                    server.LastUpdateDate = lastUpdate;
+                if (lastBackup.HasValue)
+                    server.LastBackupDate = lastBackup;
+                
+                var updatedJson = JsonSerializer.Serialize(settings, WriteOptions);
+                File.WriteAllText(ConfigPath, updatedJson);
+                Serilog.Log.Debug($"Successfully updated dates for {serverName}");
+            }
+            catch (IOException ioEx)
+            {
+                Serilog.Log.Error(ioEx, $"IO error updating dates for {serverName}: {ioEx.Message}");
+            }
+            catch (UnauthorizedAccessException uaEx)
+            {
+                Serilog.Log.Error(uaEx, $"Access denied updating dates for {serverName}: {uaEx.Message}");
+            }
+            catch (JsonException jsonEx)
+            {
+                Serilog.Log.Error(jsonEx, $"JSON error updating dates for {serverName}: {jsonEx.Message}");
+            }
+            catch (Exception ex)
+            {
+                Serilog.Log.Error(ex, $"Unexpected error updating dates for {serverName}: {ex.Message}");
+            }
         }
 
         public static void UpdateServerBuildId(string serverName, int buildId)
         {
-            if (!File.Exists(ConfigPath)) return;
-            var json = File.ReadAllText(ConfigPath);
-            var settings = JsonSerializer.Deserialize<Settings>(json, ReadOptions) ?? new Settings();
-            if (settings.GameServers == null) return;
-            var server = settings.GameServers.FirstOrDefault(s => s.Name == serverName);
-            if (server == null) return;
-            server.CurrentBuildId = buildId;
-            File.WriteAllText(ConfigPath, JsonSerializer.Serialize(settings, WriteOptions));
+            try
+            {
+                if (!File.Exists(ConfigPath))
+                {
+                    Serilog.Log.Warning($"AppSettings file not found at {ConfigPath}. Cannot update build ID for {serverName}.");
+                    return;
+                }
+                
+                var json = File.ReadAllText(ConfigPath);
+                var settings = JsonSerializer.Deserialize<Settings>(json, ReadOptions);
+                
+                if (settings?.GameServers == null)
+                {
+                    Serilog.Log.Warning($"No game servers found in settings. Cannot update build ID for {serverName}.");
+                    return;
+                }
+                
+                var server = settings.GameServers.FirstOrDefault(s => s.Name == serverName);
+                if (server == null)
+                {
+                    Serilog.Log.Warning($"Server {serverName} not found in settings. Cannot update build ID.");
+                    return;
+                }
+                
+                server.CurrentBuildId = buildId;
+                
+                var updatedJson = JsonSerializer.Serialize(settings, WriteOptions);
+                File.WriteAllText(ConfigPath, updatedJson);
+                Serilog.Log.Debug($"Successfully updated build ID for {serverName} to {buildId}");
+            }
+            catch (IOException ioEx)
+            {
+                Serilog.Log.Error(ioEx, $"IO error updating build ID for {serverName}: {ioEx.Message}");
+            }
+            catch (UnauthorizedAccessException uaEx)
+            {
+                Serilog.Log.Error(uaEx, $"Access denied updating build ID for {serverName}: {uaEx.Message}");
+            }
+            catch (JsonException jsonEx)
+            {
+                Serilog.Log.Error(jsonEx, $"JSON error updating build ID for {serverName}: {jsonEx.Message}");
+            }
+            catch (Exception ex)
+            {
+                Serilog.Log.Error(ex, $"Unexpected error updating build ID for {serverName}: {ex.Message}");
+            }
         }
 
         public static void UpdateServerLastCheck(string serverName, DateTime lastCheck)
         {
-            if (!File.Exists(ConfigPath)) return;
-            var json = File.ReadAllText(ConfigPath);
-            var settings = JsonSerializer.Deserialize<Settings>(json, ReadOptions) ?? new Settings();
-            if (settings.GameServers == null) return;
-            var server = settings.GameServers.FirstOrDefault(s => s.Name == serverName);
-            if (server == null) return;
-            server.LastUpdateCheck = lastCheck;
-            File.WriteAllText(ConfigPath, JsonSerializer.Serialize(settings, WriteOptions));
+            try
+            {
+                if (!File.Exists(ConfigPath))
+                {
+                    Serilog.Log.Warning($"AppSettings file not found at {ConfigPath}. Cannot update last check for {serverName}.");
+                    return;
+                }
+                
+                var json = File.ReadAllText(ConfigPath);
+                var settings = JsonSerializer.Deserialize<Settings>(json, ReadOptions);
+                
+                if (settings?.GameServers == null)
+                {
+                    Serilog.Log.Warning($"No game servers found in settings. Cannot update last check for {serverName}.");
+                    return;
+                }
+                
+                var server = settings.GameServers.FirstOrDefault(s => s.Name == serverName);
+                if (server == null)
+                {
+                    Serilog.Log.Warning($"Server {serverName} not found in settings. Cannot update last check.");
+                    return;
+                }
+                
+                server.LastUpdateCheck = lastCheck;
+                
+                var updatedJson = JsonSerializer.Serialize(settings, WriteOptions);
+                File.WriteAllText(ConfigPath, updatedJson);
+                Serilog.Log.Debug($"Successfully updated last check for {serverName}");
+            }
+            catch (IOException ioEx)
+            {
+                Serilog.Log.Error(ioEx, $"IO error updating last check for {serverName}: {ioEx.Message}");
+            }
+            catch (UnauthorizedAccessException uaEx)
+            {
+                Serilog.Log.Error(uaEx, $"Access denied updating last check for {serverName}: {uaEx.Message}");
+            }
+            catch (JsonException jsonEx)
+            {
+                Serilog.Log.Error(jsonEx, $"JSON error updating last check for {serverName}: {jsonEx.Message}");
+            }
+            catch (Exception ex)
+            {
+                Serilog.Log.Error(ex, $"Unexpected error updating last check for {serverName}: {ex.Message}");
+            }
         }
 
         public static void UpdateServerBuildIdAndCheck(string serverName, int buildId, DateTime lastCheck)
         {
-            if (!File.Exists(ConfigPath)) return;
-            var json = File.ReadAllText(ConfigPath);
-            var settings = JsonSerializer.Deserialize<Settings>(json, ReadOptions) ?? new Settings();
-            if (settings.GameServers == null) return;
-            var server = settings.GameServers.FirstOrDefault(s => s.Name == serverName);
-            if (server == null) return;
-            server.CurrentBuildId = buildId;
-            server.LastUpdateCheck = lastCheck;
-            File.WriteAllText(ConfigPath, JsonSerializer.Serialize(settings, WriteOptions));
+            try
+            {
+                if (!File.Exists(ConfigPath))
+                {
+                    Serilog.Log.Warning($"AppSettings file not found at {ConfigPath}. Cannot update build ID and check for {serverName}.");
+                    return;
+                }
+                
+                var json = File.ReadAllText(ConfigPath);
+                var settings = JsonSerializer.Deserialize<Settings>(json, ReadOptions);
+                
+                if (settings?.GameServers == null)
+                {
+                    Serilog.Log.Warning($"No game servers found in settings. Cannot update build ID and check for {serverName}.");
+                    return;
+                }
+                
+                var server = settings.GameServers.FirstOrDefault(s => s.Name == serverName);
+                if (server == null)
+                {
+                    Serilog.Log.Warning($"Server {serverName} not found in settings. Cannot update build ID and check.");
+                    return;
+                }
+                
+                server.CurrentBuildId = buildId;
+                server.LastUpdateCheck = lastCheck;
+                
+                var updatedJson = JsonSerializer.Serialize(settings, WriteOptions);
+                File.WriteAllText(ConfigPath, updatedJson);
+                Serilog.Log.Debug($"Successfully updated build ID and check for {serverName}");
+            }
+            catch (IOException ioEx)
+            {
+                Serilog.Log.Error(ioEx, $"IO error updating build ID and check for {serverName}: {ioEx.Message}");
+            }
+            catch (UnauthorizedAccessException uaEx)
+            {
+                Serilog.Log.Error(uaEx, $"Access denied updating build ID and check for {serverName}: {uaEx.Message}");
+            }
+            catch (JsonException jsonEx)
+            {
+                Serilog.Log.Error(jsonEx, $"JSON error updating build ID and check for {serverName}: {jsonEx.Message}");
+            }
+            catch (Exception ex)
+            {
+                Serilog.Log.Error(ex, $"Unexpected error updating build ID and check for {serverName}: {ex.Message}");
+            }
         }
     }
 }

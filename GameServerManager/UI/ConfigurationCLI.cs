@@ -19,112 +19,152 @@ public class ConfigurationCLI
 
     public void Run()
     {
-        AnsiConsole.Clear();
-        AnsiConsole.Write(new FigletText("Game Server Manager").Color(Color.Cyan1));
-        AnsiConsole.MarkupLine("[dim]Configuration Editor[/]\n");
-
-        Settings settings;
-        NotificationSettings notificationSettings;
-
-        // Load existing configuration
-        if (File.Exists(_configPath))
-        {
-            var json = File.ReadAllText(_configPath);
-            var doc = JsonDocument.Parse(json);
-            
-            if (doc.RootElement.TryGetProperty("Notification", out var notifElem))
-            {
-                notificationSettings = JsonSerializer.Deserialize<NotificationSettings>(
-                    notifElem.GetRawText(), 
-                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new NotificationSettings();
-            }
-            else
-            {
-                notificationSettings = new NotificationSettings();
-            }
-
-            settings = JsonSerializer.Deserialize<Settings>(json, 
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new Settings();
-        }
-        else
-        {
-            settings = new Settings { GameServers = new List<GameServer>() };
-            notificationSettings = new NotificationSettings();
-        }
-
-        settings.GameServers ??= new List<GameServer>();
-
-        // Main menu loop
-        while (true)
+        try
         {
             AnsiConsole.Clear();
-            AnsiConsole.Write(new Rule("[cyan]GameServerManager Configuration[/]").RuleStyle("grey").LeftJustified());
-            AnsiConsole.WriteLine();
+            AnsiConsole.Write(new FigletText("Game Server Manager").Color(Color.Cyan1));
+            AnsiConsole.MarkupLine("[dim]Configuration Editor[/]\n");
 
-            var choices = new List<string>
+            Settings settings;
+            NotificationSettings notificationSettings;
+
+            // Load existing configuration
+            try
             {
-                "Set SteamCMD Path",
-                "Add Game Server",
-                "Edit Game Server",
-                "Remove Game Server",
-                "List Game Servers",
-                "Configure Notifications"
-            };
-
-            // Add test notification option if enabled
-            bool anyNotificationEnabled = notificationSettings.EnableEmail;
-            if (anyNotificationEnabled)
-                choices.Add("Send Test Notification");
-
-            choices.Add("Save and Exit");
-            choices.Add("Exit without Saving");
-
-            var choice = AnsiConsole.Prompt(
-                new SelectionPrompt<string>()
-                    .Title("[yellow]What would you like to do?[/]")
-                    .PageSize(10)
-                    .MoreChoicesText("[grey](Move up and down to reveal more options)[/]")
-                    .AddChoices(choices));
-
-            switch (choice)
-            {
-                case "Set SteamCMD Path":
-                    SetSteamCMDPath(settings);
-                    break;
-                case "Add Game Server":
-                    settings.GameServers.Add(PromptGameServer());
-                    break;
-                case "Edit Game Server":
-                    EditGameServer(settings.GameServers);
-                    break;
-                case "Remove Game Server":
-                    RemoveGameServer(settings.GameServers);
-                    break;
-                case "List Game Servers":
-                    ListGameServers(settings.GameServers);
-                    AnsiConsole.MarkupLine("\n[grey]Press any key to continue...[/]");
-                    Console.ReadKey(true);
-                    break;
-                case "Configure Notifications":
-                    ConfigureNotifications(notificationSettings);
-                    break;
-                case "Send Test Notification":
-                    SendTestNotification(notificationSettings);
-                    break;
-                case "Save and Exit":
-                    SaveConfiguration(settings, notificationSettings);
-                    AnsiConsole.MarkupLine("\n[green][[OK]] Configuration saved successfully![/]");
-                    Thread.Sleep(1000);
-                    return;
-                case "Exit without Saving":
-                    if (AnsiConsole.Confirm("[red]Are you sure you want to exit without saving?[/]"))
+                if (File.Exists(_configPath))
+                {
+                    var json = File.ReadAllText(_configPath);
+                    var doc = JsonDocument.Parse(json);
+                    
+                    if (doc.RootElement.TryGetProperty("Notification", out var notifElem))
                     {
-                        AnsiConsole.MarkupLine("[grey]Exiting without saving...[/]");
-                        Thread.Sleep(500);
-                        return;
+                        notificationSettings = JsonSerializer.Deserialize<NotificationSettings>(
+                            notifElem.GetRawText(), 
+                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new NotificationSettings();
                     }
-                    break;
+                    else
+                    {
+                        notificationSettings = new NotificationSettings();
+                    }
+
+                    settings = JsonSerializer.Deserialize<Settings>(json, 
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? new Settings();
+                }
+                else
+                {
+                    settings = new Settings { GameServers = new List<GameServer>() };
+                    notificationSettings = new NotificationSettings();
+                }
             }
+            catch (Exception ex)
+            {
+                Serilog.Log.Error(ex, "Error loading configuration: {Message}", ex.Message);
+                AnsiConsole.MarkupLine($"[red]Error loading configuration: {ex.Message}[/]");
+                AnsiConsole.MarkupLine("[yellow]Starting with default configuration...[/]");
+                settings = new Settings { GameServers = new List<GameServer>() };
+                notificationSettings = new NotificationSettings();
+                Thread.Sleep(2000);
+            }
+
+            settings.GameServers ??= new List<GameServer>();
+
+            // Main menu loop
+            while (true)
+            {
+                try
+                {
+                    AnsiConsole.Clear();
+                    AnsiConsole.Write(new Rule("[cyan]GameServerManager Configuration[/]").RuleStyle("grey").LeftJustified());
+                    AnsiConsole.WriteLine();
+
+                    var choices = new List<string>
+                    {
+                        "Set SteamCMD Path",
+                        "Add Game Server",
+                        "Edit Game Server",
+                        "Remove Game Server",
+                        "List Game Servers",
+                        "Configure Notifications"
+                    };
+
+                    // Add test notification option if enabled
+                    bool anyNotificationEnabled = notificationSettings.EnableEmail;
+                    if (anyNotificationEnabled)
+                        choices.Add("Send Test Notification");
+
+                    choices.Add("Save and Exit");
+                    choices.Add("Exit without Saving");
+
+                    var choice = AnsiConsole.Prompt(
+                        new SelectionPrompt<string>()
+                            .Title("[yellow]What would you like to do?[/]")
+                            .PageSize(10)
+                            .MoreChoicesText("[grey](Move up and down to reveal more options)[/]")
+                            .AddChoices(choices));
+
+                    switch (choice)
+                    {
+                        case "Set SteamCMD Path":
+                            SetSteamCMDPath(settings);
+                            break;
+                        case "Add Game Server":
+                            settings.GameServers.Add(PromptGameServer());
+                            break;
+                        case "Edit Game Server":
+                            EditGameServer(settings.GameServers);
+                            break;
+                        case "Remove Game Server":
+                            RemoveGameServer(settings.GameServers);
+                            break;
+                        case "List Game Servers":
+                            ListGameServers(settings.GameServers);
+                            AnsiConsole.MarkupLine("\n[grey]Press any key to continue...[/]");
+                            Console.ReadKey(true);
+                            break;
+                        case "Configure Notifications":
+                            ConfigureNotifications(notificationSettings);
+                            break;
+                        case "Send Test Notification":
+                            SendTestNotification(notificationSettings);
+                            break;
+                        case "Save and Exit":
+                            if (SaveConfiguration(settings, notificationSettings))
+                            {
+                                AnsiConsole.MarkupLine("\n[green][[OK]] Configuration saved successfully![/]");
+                                Thread.Sleep(1000);
+                                return;
+                            }
+                            else
+                            {
+                                AnsiConsole.MarkupLine("\n[red][[X]] Failed to save configuration. Check logs for details.[/]");
+                                Thread.Sleep(2000);
+                            }
+                            break;
+                        case "Exit without Saving":
+                            if (AnsiConsole.Confirm("[red]Are you sure you want to exit without saving?[/]"))
+                            {
+                                AnsiConsole.MarkupLine("[grey]Exiting without saving...[/]");
+                                Thread.Sleep(500);
+                                return;
+                            }
+                            break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Serilog.Log.Error(ex, "Error in configuration menu: {Message}", ex.Message);
+                    AnsiConsole.MarkupLine($"[red]Error: {ex.Message}[/]");
+                    AnsiConsole.MarkupLine("[grey]Press any key to continue...[/]");
+                    Console.ReadKey(true);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "Fatal error in configuration CLI: {Message}", ex.Message);
+            AnsiConsole.MarkupLine($"[red]Fatal error: {ex.Message}[/]");
+            AnsiConsole.MarkupLine("[grey]Press any key to exit...[/]");
+            Console.ReadKey(true);
         }
     }
 
@@ -392,28 +432,53 @@ public class ConfigurationCLI
         Thread.Sleep(2000);
     }
 
-    private void SaveConfiguration(Settings settings, NotificationSettings notificationSettings)
+    private bool SaveConfiguration(Settings settings, NotificationSettings notificationSettings)
     {
-        AnsiConsole.Status()
-            .Start("Saving configuration...", ctx =>
-            {
-                var merged = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
-                var mergedDoc = JsonDocument.Parse(merged);
-                
-                using var stream = new MemoryStream();
-                using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
-                
-                writer.WriteStartObject();
-                foreach (var prop in mergedDoc.RootElement.EnumerateObject())
-                    prop.WriteTo(writer);
-                
-                writer.WritePropertyName("Notification");
-                JsonSerializer.Serialize(writer, notificationSettings, new JsonSerializerOptions { WriteIndented = true });
-                writer.WriteEndObject();
-                writer.Flush();
-                
-                File.WriteAllText(_configPath, Encoding.UTF8.GetString(stream.ToArray()));
-            });
+        try
+        {
+            AnsiConsole.Status()
+                .Start("Saving configuration...", ctx =>
+                {
+                    var merged = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
+                    var mergedDoc = JsonDocument.Parse(merged);
+                    
+                    using var stream = new MemoryStream();
+                    using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
+                    
+                    writer.WriteStartObject();
+                    foreach (var prop in mergedDoc.RootElement.EnumerateObject())
+                        prop.WriteTo(writer);
+                    
+                    writer.WritePropertyName("Notification");
+                    JsonSerializer.Serialize(writer, notificationSettings, new JsonSerializerOptions { WriteIndented = true });
+                    writer.WriteEndObject();
+                    writer.Flush();
+                    
+                    File.WriteAllText(_configPath, Encoding.UTF8.GetString(stream.ToArray()));
+                });
+            
+            return true;
+        }
+        catch (IOException ioEx)
+        {
+            Serilog.Log.Error(ioEx, "IO error saving configuration: {Message}", ioEx.Message);
+            return false;
+        }
+        catch (UnauthorizedAccessException uaEx)
+        {
+            Serilog.Log.Error(uaEx, "Access denied saving configuration: {Message}", uaEx.Message);
+            return false;
+        }
+        catch (JsonException jsonEx)
+        {
+            Serilog.Log.Error(jsonEx, "JSON error saving configuration: {Message}", jsonEx.Message);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "Unexpected error saving configuration: {Message}", ex.Message);
+            return false;
+        }
     }
 
     private bool IsValidTimeOrCron(string value)
